@@ -6,14 +6,22 @@ import {
 import { type NextRequest } from "next/server";
 
 function resolveTenantRewriteUrl(request: NextRequest): URL | null {
-  const hostname = request.headers.get("host") || "";
+  const hostname = request.headers.get("host")?.split(":")[0] ?? "";
   const url = request.nextUrl.clone();
 
   const mainDomain = process.env.NEXT_PUBLIC_DOMAIN || "fxstudio.com.br";
   const appDomain = `app.${mainDomain}`;
 
-  // 1. CRM panel: app domain or localhost
-  if (hostname === appDomain || hostname.startsWith("localhost")) {
+  const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1";
+  const isVercelApp = hostname.endsWith(".vercel.app");
+  const isMainApp =
+    isLocalhost ||
+    isVercelApp ||
+    hostname === appDomain ||
+    hostname === mainDomain;
+
+  // 1. CRM panel: main app domains (no tenant rewrite)
+  if (isMainApp) {
     return null;
   }
 
@@ -27,7 +35,7 @@ function resolveTenantRewriteUrl(request: NextRequest): URL | null {
     return url;
   }
 
-  // 3. Custom domain
+  // 3. Custom domain (corretores.dominio_custom)
   url.pathname = `/site-custom/${hostname}${url.pathname}`;
   return url;
 }
