@@ -1,0 +1,181 @@
+import { cache } from "react";
+
+import { createClient } from "@/lib/supabase/server";
+import type {
+  Corretor,
+  FinalidadeImovel,
+  Imovel,
+  ImovelFoto,
+  TipoImovel,
+} from "@/types";
+
+export interface ImoveisPublicosFilters {
+  tipo?: TipoImovel;
+  finalidade?: FinalidadeImovel;
+  bairro?: string;
+  valorMin?: number;
+  valorMax?: number;
+}
+
+type ImovelRow = Imovel & {
+  imovel_fotos: ImovelFoto[] | null;
+};
+
+function mapImovelRow(row: ImovelRow): Imovel {
+  const { imovel_fotos, ...rest } = row;
+  const fotos = imovel_fotos ?? row.fotos ?? [];
+
+  return {
+    ...rest,
+    fotos: [...fotos].sort((a, b) => a.ordem - b.ordem),
+  };
+}
+
+function normalizeHostname(hostname: string): string {
+  return hostname.replace(/^www\./i, "").toLowerCase();
+}
+
+export const getCorretorBySlug = cache(async (slug: string): Promise<Corretor | null> => {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("corretores")
+    .select("*")
+    .eq("slug", slug)
+    .maybeSingle();
+
+  if (error || !data) {
+    return null;
+  }
+
+  return data;
+});
+
+export const getCorretorByDominio = cache(
+  async (hostname: string): Promise<Corretor | null> => {
+    const supabase = await createClient();
+    const normalized = normalizeHostname(hostname);
+    const candidates = [normalized, `www.${normalized}`];
+
+    for (const dominio of candidates) {
+      const { data } = await supabase
+        .from("corretores")
+        .select("*")
+        .eq("dominio_custom", dominio)
+        .maybeSingle();
+
+      if (data) {
+        return data;
+      }
+    }
+
+    return null;
+  },
+);
+
+export const getImoveisPublicos = cache(
+  async (
+    corretorId: string,
+    filters: ImoveisPublicosFilters = {},
+  ): Promise<Imovel[]> => {
+    const supabase = await createClient();
+
+    let query = supabase
+      .from("imoveis")
+      .select("*, imovel_fotos(*)")
+      .eq("corretor_id", corretorId)
+      .eq("publicado_site", true)
+      .eq("status", "disponivel")
+      .order("atualizado_em", { ascending: false });
+
+    if (filters.tipo) {
+      query = query.eq("tipo", filters.tipo);
+    }
+
+    if (filters.finalidade) {
+      query = query.eq("finalidade", filters.finalidade);
+    }
+
+    if (filters.bairro) {
+      query = query.ilike("bairro", `%${filters.bairro}%`);
+    }
+
+    if (filters.valorMin !== undefined) {
+      if (filters.finalidade === "locacao") {
+        query = query.gte("valor_locacao", filters.valorMin);
+      } else if (filters.finalidade === "venda") {
+        query = query.gte("valor_venda", filters.valorMin);
+      } else {
+        query = query.or(
+          `valor_venda.gte.${filters.valorMin},valor_locacao.gte.${filters.valorMin}`,
+        );
+      }
+    }
+
+    if (filters.valorMax !== undefined) {
+      if (filters.finalidade === "locacao") {
+        query = query.lte("valor_locacao", filters.valorMax);
+      } else if (filters.finalidade === "venda") {
+        query = query.lte("valor_venda", filters.valorMax);
+      } else {
+        query = query.or(
+          `valor_venda.lte.${filters.valorMax},valor_locacao.lte.${filters.valorMax}`,
+        );
+      }
+    }
+
+    const { data, error } = await query;
+
+    if (error || !data) {
+      return [];
+    }
+
+    return (data as ImovelRow[]).map(mapImovelRow);
+  },
+);
+
+export const getImovelPublico = cache(
+  async (corretorId: string, slug: string): Promise<Imovel | null> => {
+    const supabase = await createClient();
+
+    const { data, error } = await supabase
+      .from("imoveis")
+      .select("*, imovel_fotos(*)")
+      .eq("corretor_id", corretorId)
+      .eq("slug", slug)
+      .eq("publicado_site", true)
+      .eq("status", "disponivel")
+      .maybeSingle();
+
+    if (error || !data) {
+      return null;
+    }
+
+    return mapImovelRow(data as ImovelRow);
+  },
+);
+
+export const getBairrosPublicos = cache(async (corretorId: string): Promise<string[]> => {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("imoveis")
+    .select("bairro")
+    .eq("corretor_id", corretorId)
+    .eq("publicado_site", true)
+    .eq("status", "disponivel")
+    .not("bairro", "is", null);
+
+  if (error || !data) {
+    return [];
+  }
+
+  const bairros = new Set<string>();
+
+  for (const row of data) {
+    if (row.bairro?.trim()) {
+      bairros.add(row.bairro.trim());
+    }
+  }
+
+  return [...bairros].sort((a, b) => a.localeCompare(b, "pt-BR"));
+});
