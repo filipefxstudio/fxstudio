@@ -2,11 +2,11 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { FunilEtapa } from "@/lib/mock/dashboard";
+import type { DashboardFunilItem } from "@/lib/actions/dashboard";
 import { cn } from "@/lib/utils";
 
 interface DashboardFunilResumoProps {
-  etapas: FunilEtapa[];
+  etapas: DashboardFunilItem[];
 }
 
 const stageColors = [
@@ -33,9 +33,9 @@ export function DashboardFunilResumo({ etapas }: DashboardFunilResumoProps) {
               const heightPercent = maxCount > 0 ? (etapa.count / maxCount) * 100 : 0;
 
               return (
-                <div key={etapa.etapa} className="flex flex-1 items-end">
+                <div key={etapa.id} className="flex flex-1 items-end">
                   <Link
-                    href={`/dashboard/leads?etapa=${etapa.etapa}`}
+                    href={etapa.href}
                     className="group flex flex-1 flex-col items-center gap-2"
                   >
                     <span className="text-lg font-bold tabular-nums text-primary transition-colors group-hover:text-secondary">

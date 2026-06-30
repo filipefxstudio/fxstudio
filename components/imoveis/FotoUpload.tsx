@@ -17,7 +17,8 @@ import { cn } from "@/lib/utils";
 
 export interface FotoItem {
   id: string;
-  file: File;
+  file?: File;
+  existingId?: string;
   previewUrl: string;
   legenda: string;
   ordem: number;
@@ -76,7 +77,9 @@ export function FotoUpload({ fotos, onChange, disabled }: FotoUploadProps) {
   useEffect(() => {
     return () => {
       for (const foto of fotosRef.current) {
-        URL.revokeObjectURL(foto.previewUrl);
+        if (foto.previewUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(foto.previewUrl);
+        }
       }
     };
   }, []);
@@ -142,7 +145,7 @@ export function FotoUpload({ fotos, onChange, disabled }: FotoUploadProps) {
   function handleRemove(id: string) {
     const removed = fotos.find((foto) => foto.id === id);
 
-    if (removed) {
+    if (removed?.previewUrl.startsWith("blob:")) {
       URL.revokeObjectURL(removed.previewUrl);
     }
 
@@ -270,7 +273,7 @@ export function FotoUpload({ fotos, onChange, disabled }: FotoUploadProps) {
 
                         <div className="min-w-0 flex-1 space-y-2">
                           <p className="truncate text-xs text-muted-foreground">
-                            {foto.file.name}
+                            {foto.file?.name ?? "Foto existente"}
                           </p>
                           <Input
                             placeholder="Legenda (opcional)"

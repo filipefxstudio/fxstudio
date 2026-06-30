@@ -4,6 +4,11 @@ import { redirect } from "next/navigation";
 import { ConfiguracoesTabs } from "@/components/configuracoes/ConfiguracoesTabs";
 import { Header } from "@/components/dashboard/Header";
 import { getAgenteConfig } from "@/lib/actions/agente-config";
+import {
+  getMidiasOrigem,
+  getPerfisEquipe,
+  getTiposImovelCustom,
+} from "@/lib/actions/configuracoes";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 import { createClient } from "@/lib/supabase/server";
 import type { Assinatura, PlanoAssinatura } from "@/types";
@@ -33,6 +38,11 @@ export default async function ConfiguracoesPage() {
 
   const plano = obterPlanoAtivo(assinaturas ?? undefined);
   const agenteConfigResult = await getAgenteConfig(corretor.id);
+  const [tiposImovel, midiasOrigem, perfisEquipe] = await Promise.all([
+    getTiposImovelCustom(),
+    getMidiasOrigem(),
+    getPerfisEquipe(),
+  ]);
 
   if ("error" in agenteConfigResult) {
     redirect("/dashboard");
@@ -54,6 +64,9 @@ export default async function ConfiguracoesPage() {
           corretor={corretor}
           plano={plano}
           agenteConfig={agenteConfigResult}
+          tiposImovel={tiposImovel}
+          midiasOrigem={midiasOrigem}
+          perfisEquipe={perfisEquipe}
         />
       </div>
     </>

@@ -1,17 +1,8 @@
 import { FINALIDADES_IMOVEL, TIPOS_IMOVEL } from "@/lib/constants/imoveis";
+import { formatCurrency } from "@/lib/imoveis/format";
 import type { FinalidadeImovel, Imovel, TipoImovel } from "@/types";
 
-export function formatCurrency(value: number | null | undefined): string {
-  if (value === null || value === undefined) {
-    return "Consulte";
-  }
-
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
+export { formatCurrency };
 
 export function getTipoLabel(tipo: TipoImovel): string {
   return TIPOS_IMOVEL.find((item) => item.value === tipo)?.label ?? tipo;

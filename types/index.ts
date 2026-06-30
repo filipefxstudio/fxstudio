@@ -10,6 +10,12 @@ export type TipoImovel =
   | "cobertura"
   | "studio";
 
+export type PapelUsuario = "admin" | "gerente" | "corretor";
+
+export type TipoCliente = "lead" | "proprietario" | "ambos";
+
+export type LocalChaves = "imobiliaria" | "proprietario" | "portaria" | "outros";
+
 export type FinalidadeImovel = "venda" | "locacao";
 
 export type StatusImovel = "disponivel" | "reservado" | "vendido" | "locado";
@@ -48,7 +54,8 @@ export type TipoInteracao =
   | "ligacao"
   | "visita"
   | "email"
-  | "anotacao";
+  | "anotacao"
+  | "proposta";
 
 export type DeInteracao = "corretor" | "lead" | "bot" | "agente_ia";
 
@@ -103,9 +110,58 @@ export interface ImovelFoto {
   legenda?: string | null;
 }
 
+export interface Perfil {
+  id: string;
+  corretor_id: string;
+  user_id: string;
+  nome: string;
+  email: string;
+  telefone?: string | null;
+  foto_url?: string | null;
+  papel: PapelUsuario;
+  ativo: boolean;
+  criado_em: string;
+}
+
+export interface Cliente {
+  id: string;
+  corretor_id: string;
+  perfil_id?: string | null;
+  nome: string;
+  telefone: string;
+  email?: string | null;
+  cpf?: string | null;
+  data_nascimento?: string | null;
+  profissao?: string | null;
+  estado_civil?: string | null;
+  observacoes?: string | null;
+  tipo: TipoCliente;
+  eh_construtor_investidor: boolean;
+  criado_em: string;
+  atualizado_em: string;
+  perfil?: Perfil | null;
+}
+
+export interface TipoImovelCustom {
+  id: string;
+  corretor_id: string;
+  nome: string;
+  ativo: boolean;
+}
+
+export interface MidiaOrigem {
+  id: string;
+  corretor_id: string;
+  nome: string;
+  ativo: boolean;
+  ordem: number;
+}
+
 export interface Imovel {
   id: string;
   corretor_id: string;
+  codigo?: string | null;
+  codigo_personalizado?: string | null;
   titulo?: string | null;
   slug?: string | null;
   tipo: TipoImovel;
@@ -115,17 +171,39 @@ export interface Imovel {
   logradouro?: string | null;
   numero?: string | null;
   complemento?: string | null;
+  complemento_tipo?: string | null;
+  complemento_numero?: string | null;
+  complemento_torre?: string | null;
+  condominio_nome?: string | null;
   bairro?: string | null;
   cidade?: string | null;
   estado?: string | null;
   latitude?: number | null;
   longitude?: number | null;
+  portal_endereco_diferente?: boolean;
+  portal_logradouro?: string | null;
+  portal_numero?: string | null;
+  portal_bairro?: string | null;
+  local_chaves?: LocalChaves | null;
+  chaves_codigo?: string | null;
+  chaves_descricao?: string | null;
+  exclusividade?: boolean;
+  imovel_ocupado?: boolean;
+  contrato_aluguel_ativo?: boolean;
+  aceita_financiamento?: boolean;
+  aceita_permuta?: boolean;
+  imovel_na_planta?: boolean;
   area_util?: number | null;
   area_total?: number | null;
+  ano_construcao?: number | null;
   quartos: number;
   suites: number;
+  salas?: number | null;
   banheiros: number;
+  elevadores?: number | null;
   vagas: number;
+  vagas_tipo?: string | null;
+  vagas_cobertura?: string | null;
   valor_venda?: number | null;
   valor_locacao?: number | null;
   valor_condominio?: number | null;
@@ -134,6 +212,8 @@ export interface Imovel {
   diferenciais?: string[] | null;
   video_url?: string | null;
   publicado_site: boolean;
+  cliente_id?: string | null;
+  cliente?: Cliente | null;
   fotos?: ImovelFoto[];
   visualizacoes: number;
   criado_em: string;

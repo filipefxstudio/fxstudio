@@ -57,3 +57,57 @@ export const IMOVEL_LIMITS: Record<"basico" | "profissional" | "premium", number
 };
 
 export const STORAGE_BUCKET_IMOVEIS = "imoveis-fotos";
+
+export const COMPLEMENTO_TIPOS = [
+  { value: "apartamento", label: "Apartamento" },
+  { value: "casa", label: "Casa" },
+  { value: "loja", label: "Loja" },
+  { value: "sala", label: "Sala" },
+  { value: "conjunto", label: "Conjunto" },
+  { value: "galpao", label: "Galpão" },
+  { value: "outro", label: "Outro" },
+] as const;
+
+export const LOCAL_CHAVES_OPCOES = [
+  { value: "imobiliaria", label: "Imobiliária" },
+  { value: "proprietario", label: "Proprietário" },
+  { value: "portaria", label: "Portaria" },
+  { value: "outros", label: "Outros" },
+] as const;
+
+export const VAGAS_TIPO_OPCOES = [
+  { value: "paralela", label: "Paralela" },
+  { value: "em_linha", label: "Em linha" },
+] as const;
+
+export const VAGAS_COBERTURA_OPCOES = [
+  { value: "coberta", label: "Coberta" },
+  { value: "coberta_pilotis", label: "Coberta sob pilotis" },
+  { value: "descoberta", label: "Descoberta" },
+] as const;
+
+export const DEFAULT_TIPOS_IMOVEL_CUSTOM = [
+  "Apartamento",
+  "Casa",
+  "Cobertura",
+  "Área privativa",
+  "Studio",
+  "Terreno",
+  "Comercial",
+  "Galpão",
+] as const;
+
+export const DEFAULT_MIDIAS_ORIGEM = [
+  "Meta Ads",
+  "Google Ads",
+  "Grupo OLX",
+  "Chaves na Mão",
+  "Webimóveis",
+  "Instagram orgânico",
+  "Placa ou faixa",
+  "Site",
+  "Indicação",
+  "WhatsApp direto",
+] as const;
+
+export const EQUIPE_LIMITE_USUARIOS = 5;

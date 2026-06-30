@@ -21,6 +21,7 @@ import type { EtapaLead, Lead } from "@/types";
 interface FunilKanbanProps {
   initialLeads: Lead[];
   corretorId: string;
+  hideHeader?: boolean;
 }
 
 function getColumnAccent(etapa: EtapaLead): "default" | "success" | "danger" {
@@ -63,7 +64,7 @@ function mergeLeadFromPayload(
   return next;
 }
 
-export function FunilKanban({ initialLeads, corretorId }: FunilKanbanProps) {
+export function FunilKanban({ initialLeads, corretorId, hideHeader }: FunilKanbanProps) {
   const [leads, setLeads] = useState<Lead[]>(initialLeads);
   const pendingUpdates = useRef<Set<string>>(new Set());
 
@@ -178,16 +179,18 @@ export function FunilKanban({ initialLeads, corretorId }: FunilKanbanProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-primary">Leads</h2>
-          <p className="text-sm text-muted-foreground">
-            {totalLeads === 0
-              ? "Nenhum lead no funil."
-              : `${totalLeads} lead${totalLeads === 1 ? "" : "s"} no funil`}
-          </p>
+      {!hideHeader ? (
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-primary">Leads</h2>
+            <p className="text-sm text-muted-foreground">
+              {totalLeads === 0
+                ? "Nenhum lead no funil."
+                : `${totalLeads} lead${totalLeads === 1 ? "" : "s"} no funil`}
+            </p>
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <DragDropContext onDragEnd={handleDragEnd}>
         <div className="overflow-x-auto pb-4">

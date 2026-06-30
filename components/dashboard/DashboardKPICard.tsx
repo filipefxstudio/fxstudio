@@ -1,25 +1,29 @@
-import { Building2, CalendarDays, Flame, Users } from "lucide-react";
+import { Building2, CalendarDays, Flame, Snowflake, Sun, Users } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
-import type { DashboardKPI } from "@/lib/mock/dashboard";
+import type { DashboardKPIItem } from "@/lib/actions/dashboard";
 import { cn } from "@/lib/utils";
 
 const iconMap = {
-  imoveis: Building2,
-  leads: Users,
+  leads: Building2,
+  novos: Users,
   quentes: Flame,
+  mornos: Sun,
+  frios: Snowflake,
   visitas: CalendarDays,
 } as const;
 
 const accentMap = {
-  imoveis: "bg-primary/10 text-primary",
-  leads: "bg-secondary/10 text-secondary",
-  quentes: "bg-accent/15 text-accent",
+  leads: "bg-primary/10 text-primary",
+  novos: "bg-secondary/10 text-secondary",
+  quentes: "bg-[#E63946]/15 text-[#E63946]",
+  mornos: "bg-[#F18F01]/15 text-[#F18F01]",
+  frios: "bg-[#2E86AB]/15 text-[#2E86AB]",
   visitas: "bg-[#2DC653]/15 text-[#2DC653]",
 } as const;
 
 interface DashboardKPICardProps {
-  kpi: DashboardKPI;
+  kpi: DashboardKPIItem;
 }
 
 export function DashboardKPICard({ kpi }: DashboardKPICardProps) {

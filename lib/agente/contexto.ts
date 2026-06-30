@@ -1,5 +1,7 @@
 import type { Imovel, Lead, LeadInteracao } from "@/types";
 
+import { formatCurrency } from "@/lib/imoveis/format";
+
 export function montarContexto(
   lead: Lead,
   imoveis: Imovel[],
@@ -16,7 +18,7 @@ export function montarContexto(
       `Bairros: ${lead.bairros_interesse.join(", ")}`,
     lead.quartos_minimo && `Mínimo de quartos: ${lead.quartos_minimo}`,
     lead.valor_maximo &&
-      `Orçamento até: R$${lead.valor_maximo.toLocaleString("pt-BR")}`,
+      `Orçamento até: ${formatCurrency(lead.valor_maximo)}`,
     lead.prazo_decisao && `Prazo: ${lead.prazo_decisao}`,
   ]
     .filter(Boolean)
@@ -27,8 +29,8 @@ export function montarContexto(
     .map((imovel) => {
       const valor =
         imovel.finalidade === "venda"
-          ? `R$${imovel.valor_venda?.toLocaleString("pt-BR") ?? "—"}`
-          : `R$${imovel.valor_locacao?.toLocaleString("pt-BR") ?? "—"}/mês`;
+          ? formatCurrency(imovel.valor_venda)
+          : `${formatCurrency(imovel.valor_locacao)}/mês`;
 
       return `- ${imovel.titulo ?? imovel.tipo} | ${imovel.bairro ?? "—"}, ${imovel.cidade ?? "—"} | ${imovel.quartos}q ${imovel.suites}s ${imovel.vagas}vg | ${valor} | ${imovel.area_util ?? "—"}m²${imovel.diferenciais?.length ? ` | ${imovel.diferenciais.join(", ")}` : ""}`;
     })

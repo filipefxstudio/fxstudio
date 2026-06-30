@@ -58,7 +58,7 @@ export function ImovelCardPublico({ imovel }: ImovelCardPublicoProps) {
             ) : null}
           </div>
 
-          <p className="text-lg font-bold text-primary">{getValorExibicao(imovel)}</p>
+          <p className="text-xl font-black text-black">{getValorExibicao(imovel)}</p>
 
           <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
             {imovel.quartos > 0 ? (
