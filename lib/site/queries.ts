@@ -1,5 +1,6 @@
 import { cache } from "react";
 
+import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import type {
   Corretor,
@@ -8,6 +9,17 @@ import type {
   ImovelFoto,
   TipoImovel,
 } from "@/types";
+
+const CORRETOR_PUBLIC_COLUMNS =
+  "id, user_id, nome, email, telefone, creci, slug, dominio_custom, foto_url, sobre, whatsapp, criado_em, atualizado_em";
+
+async function createSiteReadClient() {
+  try {
+    return createServiceRoleClient();
+  } catch {
+    return createClient();
+  }
+}
 
 export interface ImoveisPublicosFilters {
   tipo?: TipoImovel;
@@ -36,10 +48,10 @@ function normalizeHostname(hostname: string): string {
 }
 
 export const getCorretorBySlug = cache(async (slug: string): Promise<Corretor | null> => {
-  const supabase = await createClient();
+  const supabase = await createSiteReadClient();
   const { data, error } = await supabase
     .from("corretores")
-    .select("*")
+    .select(CORRETOR_PUBLIC_COLUMNS)
     .eq("slug", slug)
     .maybeSingle();
 
@@ -52,14 +64,14 @@ export const getCorretorBySlug = cache(async (slug: string): Promise<Corretor | 
 
 export const getCorretorByDominio = cache(
   async (hostname: string): Promise<Corretor | null> => {
-    const supabase = await createClient();
+    const supabase = await createSiteReadClient();
     const normalized = normalizeHostname(hostname);
     const candidates = [normalized, `www.${normalized}`];
 
     for (const dominio of candidates) {
       const { data } = await supabase
         .from("corretores")
-        .select("*")
+        .select(CORRETOR_PUBLIC_COLUMNS)
         .eq("dominio_custom", dominio)
         .maybeSingle();
 
@@ -77,7 +89,7 @@ export const getImoveisPublicos = cache(
     corretorId: string,
     filters: ImoveisPublicosFilters = {},
   ): Promise<Imovel[]> => {
-    const supabase = await createClient();
+    const supabase = await createSiteReadClient();
 
     let query = supabase
       .from("imoveis")
@@ -135,7 +147,7 @@ export const getImoveisPublicos = cache(
 
 export const getImovelPublico = cache(
   async (corretorId: string, slug: string): Promise<Imovel | null> => {
-    const supabase = await createClient();
+    const supabase = await createSiteReadClient();
 
     const { data, error } = await supabase
       .from("imoveis")
@@ -155,7 +167,7 @@ export const getImovelPublico = cache(
 );
 
 export const getBairrosPublicos = cache(async (corretorId: string): Promise<string[]> => {
-  const supabase = await createClient();
+  const supabase = await createSiteReadClient();
 
   const { data, error } = await supabase
     .from("imoveis")

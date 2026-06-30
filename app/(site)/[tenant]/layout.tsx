@@ -5,6 +5,8 @@ import { SiteLayoutShell } from "@/components/site/SiteLayoutShell";
 import { resolveSiteBasePath } from "@/lib/site/paths";
 import { getCorretorBySlug } from "@/lib/site/queries";
 
+export const dynamic = "force-dynamic";
+
 interface TenantLayoutProps {
   children: React.ReactNode;
   params: Promise<{ tenant: string }>;

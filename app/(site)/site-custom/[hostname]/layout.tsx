@@ -5,6 +5,8 @@ import { SiteLayoutShell } from "@/components/site/SiteLayoutShell";
 import { resolveSiteBasePath } from "@/lib/site/paths";
 import { getCorretorByDominio } from "@/lib/site/queries";
 
+export const dynamic = "force-dynamic";
+
 interface CustomDomainLayoutProps {
   children: React.ReactNode;
   params: Promise<{ hostname: string }>;

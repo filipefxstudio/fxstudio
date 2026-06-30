@@ -1,6 +1,7 @@
 import type { FinalidadeImovel, TipoImovel } from "@/types";
 
 import type { ImoveisPublicosFilters } from "@/lib/site/queries";
+import { resolveSiteHostContext } from "@/lib/site/host";
 
 function getParam(
   searchParams: Record<string, string | string[] | undefined>,
@@ -69,24 +70,17 @@ export async function resolveSiteBasePath(options: {
   const { headers } = await import("next/headers");
   const headersList = await headers();
   const host = headersList.get("host") ?? "";
-  const mainDomain = process.env.NEXT_PUBLIC_DOMAIN || "fxstudio.com.br";
-  const appDomain = `app.${mainDomain}`;
-
-  const isLocalhost = host.startsWith("localhost") || host.startsWith("127.0.0.1");
-  const isSubdomain =
-    host.endsWith(`.${mainDomain}`) && !host.startsWith("www.") && host !== mainDomain;
-  const isCustomDomainProduction =
-    !isLocalhost && host !== appDomain && host !== mainDomain && !isSubdomain;
+  const ctx = resolveSiteHostContext(host);
 
   if (options.routeKind === "custom") {
-    if (isCustomDomainProduction) {
+    if (ctx.isCustomDomain) {
       return "";
     }
 
-    return `/site-custom/${options.hostname ?? host.split(":")[0]}`;
+    return `/site-custom/${options.hostname ?? ctx.hostname}`;
   }
 
-  if (isSubdomain || isCustomDomainProduction) {
+  if (ctx.isSubdomain || ctx.isCustomDomain) {
     return "";
   }
 
