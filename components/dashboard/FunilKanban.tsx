@@ -15,6 +15,7 @@ import {
   ETAPAS_LEAD,
   isEtapaLead,
 } from "@/lib/constants/leads";
+import { normalizarEtapaKanban } from "@/lib/leads/etapa-order";
 import { createClient } from "@/lib/supabase/client";
 import type { EtapaLead, Lead } from "@/types";
 
@@ -74,7 +75,8 @@ export function FunilKanban({ initialLeads, corretorId, hideHeader }: FunilKanba
     ) as Record<EtapaLead, Lead[]>;
 
     for (const lead of leads) {
-      const etapa = isEtapaLead(lead.etapa) ? lead.etapa : "novo";
+      const raw = isEtapaLead(lead.etapa) ? lead.etapa : "novo";
+      const etapa = normalizarEtapaKanban(raw);
       grouped[etapa].push(lead);
     }
 
@@ -133,7 +135,7 @@ export function FunilKanban({ initialLeads, corretorId, hideHeader }: FunilKanba
         setLeads(snapshot);
         toast({
           variant: "destructive",
-          title: "Erro ao mover lead",
+          title: "Erro ao mover atendimento",
           description: resultado.error,
         });
       }
@@ -182,11 +184,11 @@ export function FunilKanban({ initialLeads, corretorId, hideHeader }: FunilKanba
       {!hideHeader ? (
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-primary">Leads</h2>
+            <h2 className="text-lg font-semibold text-primary">Atendimentos</h2>
             <p className="text-sm text-muted-foreground">
               {totalLeads === 0
-                ? "Nenhum lead no funil."
-                : `${totalLeads} lead${totalLeads === 1 ? "" : "s"} no funil`}
+                ? "Nenhum atendimento no funil."
+                : `${totalLeads} atendimento${totalLeads === 1 ? "" : "s"} no funil`}
             </p>
           </div>
         </div>

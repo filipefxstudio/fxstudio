@@ -66,9 +66,9 @@ export function NovoLeadForm({ midias, perfis }: NovoLeadFormProps) {
       }
 
       if (result.leadId) {
-        router.push(`/dashboard/leads/${result.leadId}`);
+        router.push(`/dashboard/atendimentos/${result.leadId}`);
       } else {
-        router.push("/dashboard/leads");
+        router.push("/dashboard/atendimentos");
       }
     });
   }
@@ -193,7 +193,7 @@ export function NovoLeadForm({ midias, perfis }: NovoLeadFormProps) {
               Salvar lead
             </Button>
             <Button type="button" variant="outline" asChild>
-              <Link href="/dashboard/leads">Cancelar</Link>
+              <Link href="/dashboard/atendimentos">Cancelar</Link>
             </Button>
           </div>
         </form>

@@ -1,84 +1,110 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
+import { Loader2 } from "lucide-react";
 
 import { DashboardAlertas } from "@/components/dashboard/DashboardAlertas";
+import { DashboardCaptacoesChart } from "@/components/dashboard/DashboardCaptacoesChart";
 import { DashboardFunil } from "@/components/dashboard/DashboardFunil";
-import { DashboardGraficoImoveis } from "@/components/dashboard/DashboardGraficoImoveis";
-import { DashboardGraficoOrigem } from "@/components/dashboard/DashboardGraficoOrigem";
+import { DashboardImoveisDesatualizadosChart } from "@/components/dashboard/DashboardImoveisDesatualizadosChart";
 import { DashboardKPIs } from "@/components/dashboard/DashboardKPIs";
-import { DashboardLeadsRecentes } from "@/components/dashboard/DashboardLeadsRecentes";
-import { DashboardTabs } from "@/components/dashboard/DashboardTabs";
-import { Card, CardContent } from "@/components/ui/card";
-import type { DashboardStats, DashboardTab } from "@/lib/actions/dashboard";
+import { DashboardOrigemChart } from "@/components/dashboard/DashboardOrigemChart";
 import {
-  DEFAULT_DIAS_ALERTA_INATIVIDADE,
-  STORAGE_KEY_DIAS_ALERTA_INATIVIDADE,
-} from "@/lib/constants/config";
-import Link from "next/link";
-import { AlertTriangle } from "lucide-react";
+  DashboardPeriodFilter,
+  type DashboardPeriodState,
+} from "@/components/dashboard/DashboardPeriodFilter";
+import { DashboardQualidadeChart } from "@/components/dashboard/DashboardQualidadeChart";
+import { DashboardTabs } from "@/components/dashboard/DashboardTabs";
+import { DashboardTemperaturaChart } from "@/components/dashboard/DashboardTemperaturaChart";
+import { DashboardTempoInteracaoChart } from "@/components/dashboard/DashboardTempoInteracaoChart";
+import {
+  getDashboardDataBothTabs,
+  type DashboardData,
+  type DashboardTab,
+} from "@/lib/actions/dashboard";
 
 interface DashboardClientProps {
-  statsVenda: DashboardStats;
-  statsLocacao: DashboardStats;
+  statsVenda: DashboardData;
+  statsLocacao: DashboardData;
+  initialPeriod: DashboardPeriodState;
 }
 
-export function DashboardClient({ statsVenda, statsLocacao }: DashboardClientProps) {
+export function DashboardClient({
+  statsVenda: initialVenda,
+  statsLocacao: initialLocacao,
+  initialPeriod,
+}: DashboardClientProps) {
   const [tab, setTab] = useState<DashboardTab>("venda");
-  const [diasAlerta, setDiasAlerta] = useState(DEFAULT_DIAS_ALERTA_INATIVIDADE);
+  const [period, setPeriod] = useState<DashboardPeriodState>(initialPeriod);
+  const [statsVenda, setStatsVenda] = useState(initialVenda);
+  const [statsLocacao, setStatsLocacao] = useState(initialLocacao);
+  const [isPending, startTransition] = useTransition();
 
-  useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY_DIAS_ALERTA_INATIVIDADE);
-    if (stored) {
-      const parsed = Number(stored);
-      if (!Number.isNaN(parsed) && parsed > 0) {
-        setDiasAlerta(parsed);
-      }
-    }
+  const fetchData = useCallback((nextPeriod: DashboardPeriodState) => {
+    startTransition(async () => {
+      const result = await getDashboardDataBothTabs({
+        periodPreset: nextPeriod.preset,
+        customStart: nextPeriod.customStart || undefined,
+        customEnd: nextPeriod.customEnd || undefined,
+      });
+
+      if (result.venda) setStatsVenda(result.venda);
+      if (result.locacao) setStatsLocacao(result.locacao);
+    });
   }, []);
 
+  useEffect(() => {
+    if (
+      period.preset === initialPeriod.preset &&
+      period.customStart === initialPeriod.customStart &&
+      period.customEnd === initialPeriod.customEnd
+    ) {
+      return;
+    }
+
+    if (period.preset === "personalizado" && (!period.customStart || !period.customEnd)) {
+      return;
+    }
+
+    fetchData(period);
+  }, [period, initialPeriod, fetchData]);
+
   const stats = tab === "venda" ? statsVenda : statsLocacao;
-  const finalidade = tab === "venda" ? "compra" : "locacao";
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <DashboardTabs activeTab={tab} onTabChange={setTab} />
+        <DashboardPeriodFilter value={period} onChange={setPeriod} />
       </div>
 
-      {stats.leadsSemInteracao > 0 ? (
-        <Card className="border-[#F18F01]/40 bg-[#F18F01]/10">
-          <CardContent className="flex items-start gap-3 p-4">
-            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-[#F18F01]" />
-            <div>
-              <p className="font-medium text-primary">
-                {stats.leadsSemInteracao} lead{stats.leadsSemInteracao === 1 ? "" : "s"} sem
-                interação há mais de {diasAlerta} dias
-              </p>
-              <Link
-                href={`/dashboard/leads?sem_interacao=${diasAlerta}&finalidade=${finalidade}`}
-                className="mt-1 inline-block text-sm font-medium text-secondary hover:underline"
-              >
-                Ver leads →
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
+      {isPending && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          Atualizando dados…
+        </div>
+      )}
 
       <DashboardKPIs kpis={stats.kpis} />
 
       <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <DashboardLeadsRecentes leads={stats.leadsRecentes} />
-        <DashboardAlertas alertas={stats.alertas} />
+        <DashboardFunil etapas={stats.funil} />
+        <DashboardTemperaturaChart data={stats.temperatura} />
       </section>
 
-      <section className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-1">
-          <DashboardFunil etapas={stats.funil} />
-        </div>
-        <DashboardGraficoImoveis items={stats.imoveisPorStatus} />
-        <DashboardGraficoOrigem items={stats.origemLeads} />
+      <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <DashboardQualidadeChart data={stats.qualidade} />
+        <DashboardTempoInteracaoChart data={stats.tempoInteracao} />
+      </section>
+
+      <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <DashboardOrigemChart items={stats.origem} />
+        <DashboardCaptacoesChart data={stats.captacoes} />
+      </section>
+
+      <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <DashboardImoveisDesatualizadosChart data={stats.imoveisDesatualizados} />
+        <DashboardAlertas alertas={stats.alertas} />
       </section>
     </div>
   );

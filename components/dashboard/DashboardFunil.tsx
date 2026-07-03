@@ -1,4 +1,16 @@
+"use client";
+
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import {
+  Bar,
+  BarChart,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { DashboardFunilItem } from "@/lib/actions/dashboard";
@@ -8,38 +20,67 @@ interface DashboardFunilProps {
 }
 
 export function DashboardFunil({ etapas }: DashboardFunilProps) {
-  const maxCount = Math.max(...etapas.map((e) => e.count), 1);
+  const router = useRouter();
+  const chartData = etapas.map((e) => ({ ...e, name: e.label }));
 
   return (
-    <Card className="border-border/80">
-      <CardHeader className="pb-4">
+    <Card className="h-full border-border/80">
+      <CardHeader className="pb-2">
         <CardTitle className="text-base font-semibold">Funil de vendas</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {etapas.map((etapa) => {
-          const width = maxCount > 0 ? (etapa.count / maxCount) * 100 : 0;
-
-          return (
-            <Link
-              key={etapa.id}
-              href={etapa.href}
-              className="group block space-y-1"
+      <CardContent>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={chartData}
+              layout="vertical"
+              margin={{ top: 0, right: 8, left: 0, bottom: 0 }}
             >
-              <div className="flex items-center justify-between text-sm">
-                <span className="font-medium text-primary group-hover:text-secondary">
-                  {etapa.label}
-                </span>
-                <span className="tabular-nums font-bold text-primary">{etapa.count}</span>
-              </div>
-              <div className="h-3 overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-secondary transition-all group-hover:bg-secondary/80"
-                  style={{ width: `${Math.max(width, etapa.count > 0 ? 8 : 0)}%` }}
-                />
-              </div>
-            </Link>
-          );
-        })}
+              <XAxis type="number" hide />
+              <YAxis
+                type="category"
+                dataKey="name"
+                width={88}
+                tick={{ fontSize: 12, fill: "var(--muted-foreground)" }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip
+                formatter={(value) => [Number(value ?? 0), "Leads"]}
+                contentStyle={{ borderRadius: 8, fontSize: 13 }}
+              />
+              <Bar
+                dataKey="count"
+                radius={[0, 6, 6, 0]}
+                isAnimationActive
+                cursor="pointer"
+                onClick={(data) => {
+                  const payload = data as { payload?: DashboardFunilItem };
+                  if (payload.payload?.href) {
+                    router.push(payload.payload.href);
+                  }
+                }}
+              >
+                {chartData.map((entry) => (
+                  <Cell key={entry.id} fill="#2E86AB" />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <ul className="mt-2 space-y-1">
+          {etapas.map((etapa) => (
+            <li key={etapa.id}>
+              <Link
+                href={etapa.href}
+                className="flex items-center justify-between text-sm hover:text-secondary"
+              >
+                <span>{etapa.label}</span>
+                <span className="font-semibold tabular-nums">{etapa.count}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
       </CardContent>
     </Card>
   );

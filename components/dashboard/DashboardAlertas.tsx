@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, Camera, Clock, KeyRound } from "lucide-react";
+import { AlertTriangle, Calendar, Camera, Clock, Home } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { DashboardAlertaItem } from "@/lib/actions/dashboard";
@@ -9,11 +9,13 @@ interface DashboardAlertasProps {
   alertas: DashboardAlertaItem[];
 }
 
-const iconMap = {
-  warning: AlertTriangle,
-  info: Camera,
-  danger: Clock,
-} as const;
+const iconById: Record<string, typeof AlertTriangle> = {
+  "agenda-hoje": Calendar,
+  "visitas-24h": Calendar,
+  "leads-sem-contato": Clock,
+  "sem-foto": Camera,
+  "imoveis-desatualizados": Home,
+};
 
 const styleMap = {
   warning: "text-[#F18F01] bg-[#F18F01]/10",
@@ -32,10 +34,7 @@ export function DashboardAlertas({ alertas }: DashboardAlertasProps) {
           <p className="text-sm text-muted-foreground">Nenhum alerta no momento.</p>
         ) : (
           alertas.map((alerta) => {
-            const Icon =
-              alerta.id === "sem-chaves"
-                ? KeyRound
-                : iconMap[alerta.tipo];
+            const Icon = iconById[alerta.id] ?? AlertTriangle;
 
             return (
               <div
@@ -56,7 +55,7 @@ export function DashboardAlertas({ alertas }: DashboardAlertasProps) {
                     href={alerta.href}
                     className="mt-1 inline-block text-sm font-medium text-secondary hover:underline"
                   >
-                    [{alerta.acaoLabel}]
+                    {alerta.acaoLabel} →
                   </Link>
                 </div>
               </div>

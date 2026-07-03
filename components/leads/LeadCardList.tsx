@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { MessageCircle, Phone } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { TemperaturaBadge } from "@/components/leads/TemperaturaBadge";
 import { ETAPA_LEAD_LABELS } from "@/lib/constants/leads";
@@ -16,13 +17,21 @@ import type { Lead } from "@/types";
 
 interface LeadCardListProps {
   leads: Lead[];
+  basePath?: string;
+  renderActions?: (lead: Lead) => ReactNode;
+  children?: (lead: Lead) => ReactNode;
 }
 
-export function LeadCardList({ leads }: LeadCardListProps) {
+export function LeadCardList({
+  leads,
+  basePath = "/dashboard/atendimentos",
+  renderActions,
+  children,
+}: LeadCardListProps) {
   if (leads.length === 0) {
     return (
       <p className="py-12 text-center text-sm text-muted-foreground">
-        Nenhum lead encontrado com os filtros atuais.
+        Nenhum atendimento encontrado com os filtros atuais.
       </p>
     );
   }
@@ -33,20 +42,20 @@ export function LeadCardList({ leads }: LeadCardListProps) {
         {leads.map((lead) => {
           const telLink = buildTelLink(lead.telefone);
           const waLink = buildWhatsAppLink(lead.telefone);
+          const href = `${basePath}/${lead.id}`;
+          const actions = renderActions?.(lead) ?? children?.(lead);
 
           return (
-            <div
+            <Link
               key={lead.id}
-              className="flex flex-col gap-3 bg-card p-4 sm:flex-row sm:items-center sm:justify-between"
+              href={href}
+              className="flex flex-col gap-3 bg-card p-4 transition-colors hover:bg-muted/30 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Link
-                    href={`/dashboard/leads/${lead.id}`}
-                    className="font-semibold text-primary hover:underline"
-                  >
-                    {lead.nome?.trim() || "Lead sem nome"}
-                  </Link>
+                  <span className="font-semibold text-primary">
+                    {lead.nome?.trim() || "Atendimento sem nome"}
+                  </span>
                   <TemperaturaBadge temperatura={lead.temperatura} />
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">
@@ -59,29 +68,47 @@ export function LeadCardList({ leads }: LeadCardListProps) {
                 </div>
               </div>
 
-              <div className="flex shrink-0 gap-2">
-                {telLink ? (
-                  <a
-                    href={telLink}
-                    className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"
-                  >
-                    <Phone className="size-3.5" />
-                    Ligar
-                  </a>
-                ) : null}
-                {waLink ? (
-                  <a
-                    href={waLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 rounded-lg border border-[#2DC653]/40 bg-[#2DC653]/10 px-3 py-1.5 text-xs font-medium text-[#1a7a34]"
-                  >
-                    <MessageCircle className="size-3.5" />
-                    WhatsApp
-                  </a>
-                ) : null}
+              <div
+                className="flex shrink-0 gap-2"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+              >
+                {actions ?? (
+                  <>
+                    {telLink ? (
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          window.location.href = telLink;
+                        }}
+                      >
+                        <Phone className="size-3.5" />
+                        Ligar
+                      </button>
+                    ) : null}
+                    {waLink ? (
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded-lg border border-[#2DC653]/40 bg-[#2DC653]/10 px-3 py-1.5 text-xs font-medium text-[#1a7a34]"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          window.open(waLink, "_blank", "noopener,noreferrer");
+                        }}
+                      >
+                        <MessageCircle className="size-3.5" />
+                        WhatsApp
+                      </button>
+                    ) : null}
+                  </>
+                )}
               </div>
-            </div>
+            </Link>
           );
         })}
       </div>

@@ -3,15 +3,21 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { IMOVEL_LIMITS, STORAGE_BUCKET_IMOVEIS } from "@/lib/constants/imoveis";
+import {
+  IMOVEL_LIMITS,
+  STATUS_NOME_TO_SLUG,
+  STORAGE_BUCKET_IMOVEIS,
+  STORAGE_BUCKET_MARCA_DAGUA,
+} from "@/lib/constants/imoveis";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 import { createClient } from "@/lib/supabase/server";
 import { createClienteFromImovel } from "@/lib/actions/clientes";
 import { buildComplementoString } from "@/lib/imoveis/form";
+import { applyWatermark } from "@/lib/imoveis/watermark";
 import { generateImovelSlug } from "@/lib/utils";
 import { imovelFormSchema, type ImovelFormValues } from "@/lib/validations/imovel";
-import type { Imovel, PlanoAssinatura } from "@/types";
+import type { Imovel, MarcaDaguaConfig, PlanoAssinatura, StatusImovel, StatusImovelSlug } from "@/types";
 
 export type ImovelActionResult = {
   success?: boolean;
@@ -97,6 +103,196 @@ function extractStoragePathFromUrl(url: string): string | null {
   }
 
   return url.slice(index + marker.length);
+}
+
+const IMOVEL_SELECT = "*, fotos:imovel_fotos(*), status_imovel:status_imovel(*), cliente:clientes(*)";
+
+async function getStatusById(
+  corretorId: string,
+  statusId: string,
+): Promise<StatusImovel | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("status_imovel")
+    .select("*")
+    .eq("id", statusId)
+    .eq("corretor_id", corretorId)
+    .maybeSingle();
+
+  return (data as StatusImovel | null) ?? null;
+}
+
+function slugFromStatusRecord(status: StatusImovel | null): StatusImovelSlug {
+  if (!status) {
+    return "disponivel";
+  }
+
+  return STATUS_NOME_TO_SLUG[status.nome] ?? "disponivel";
+}
+
+async function resolveStatusSlug(
+  corretorId: string,
+  statusImovelId: string,
+): Promise<StatusImovelSlug> {
+  const status = await getStatusById(corretorId, statusImovelId);
+  return slugFromStatusRecord(status);
+}
+
+async function getMarcaDaguaConfigForCorretor(
+  corretorId: string,
+): Promise<MarcaDaguaConfig | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("marca_dagua_config")
+    .select("*")
+    .eq("corretor_id", corretorId)
+    .maybeSingle();
+
+  return (data as MarcaDaguaConfig | null) ?? null;
+}
+
+async function fetchLogoBuffer(logoUrl: string): Promise<Buffer | null> {
+  try {
+    const response = await fetch(logoUrl);
+    if (!response.ok) {
+      return null;
+    }
+    return Buffer.from(await response.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
+async function processImageBuffer(
+  corretorId: string,
+  buffer: Buffer,
+): Promise<Buffer> {
+  const config = await getMarcaDaguaConfigForCorretor(corretorId);
+
+  if (!config?.logo_url) {
+    return buffer;
+  }
+
+  const logoBuffer = await fetchLogoBuffer(config.logo_url);
+
+  if (!logoBuffer) {
+    return buffer;
+  }
+
+  try {
+    return await applyWatermark(buffer, config, logoBuffer);
+  } catch (error) {
+    console.error("[processImageBuffer] watermark failed", error);
+    return buffer;
+  }
+}
+
+export async function getStatusImovelList(corretorId?: string): Promise<StatusImovel[]> {
+  const corretor = corretorId
+    ? { id: corretorId }
+    : await getCorretorForUser();
+
+  if (!corretor) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("status_imovel")
+    .select("*")
+    .eq("corretor_id", corretor.id)
+    .eq("ativo", true)
+    .order("ordem");
+
+  if (error) {
+    console.error("[getStatusImovelList] failed", error);
+    return [];
+  }
+
+  return (data ?? []) as StatusImovel[];
+}
+
+export async function updateImovelStatus(
+  id: string,
+  statusImovelId: string,
+): Promise<ImovelActionResult> {
+  const corretor = await getCorretorForUser();
+
+  if (!corretor) {
+    return { error: "Sessão expirada. Faça login novamente." };
+  }
+
+  const owns = await ensureImovelOwnership(id, corretor.id);
+
+  if (!owns) {
+    return { error: "Imóvel não encontrado." };
+  }
+
+  const status = await getStatusById(corretor.id, statusImovelId);
+
+  if (!status) {
+    return { error: "Status não encontrado." };
+  }
+
+  const slug = slugFromStatusRecord(status);
+  const supabase = await createClient();
+
+  const updatePayload: Record<string, unknown> = {
+    status_imovel_id: statusImovelId,
+    status: slug,
+  };
+
+  if (slug === "vendido" || slug === "locado") {
+    updatePayload.data_desativacao = new Date().toISOString();
+  }
+
+  const { error } = await supabase
+    .from("imoveis")
+    .update(updatePayload)
+    .eq("id", id)
+    .eq("corretor_id", corretor.id);
+
+  if (error) {
+    console.error("[updateImovelStatus] failed", error);
+    return { error: "Não foi possível alterar o status." };
+  }
+
+  revalidatePath("/dashboard/imoveis");
+  revalidatePath(`/dashboard/imoveis/${id}`);
+
+  return { success: true, imovelId: id };
+}
+
+export async function validarAtualizacao(id: string): Promise<ImovelActionResult & { data?: string }> {
+  const corretor = await getCorretorForUser();
+
+  if (!corretor) {
+    return { error: "Sessão expirada. Faça login novamente." };
+  }
+
+  const owns = await ensureImovelOwnership(id, corretor.id);
+
+  if (!owns) {
+    return { error: "Imóvel não encontrado." };
+  }
+
+  const now = new Date().toISOString();
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("imoveis")
+    .update({ data_ultima_atualizacao: now })
+    .eq("id", id)
+    .eq("corretor_id", corretor.id);
+
+  if (error) {
+    console.error("[validarAtualizacao] failed", error);
+    return { error: "Não foi possível registrar a atualização." };
+  }
+
+  revalidatePath(`/dashboard/imoveis/${id}`);
+
+  return { success: true, imovelId: id, data: now };
 }
 
 async function ensureImovelOwnership(imovelId: string, corretorId: string) {
@@ -200,6 +396,15 @@ function buildImovelFields(data: ImovelFormValues) {
     portal_bairro: data.portal_endereco_diferente
       ? data.portal_bairro?.trim() || null
       : null,
+    portal_cep: data.portal_endereco_diferente
+      ? sanitizeCep(data.portal_cep ?? "")
+      : null,
+    portal_cidade: data.portal_endereco_diferente
+      ? data.portal_cidade?.trim() || null
+      : null,
+    portal_estado: data.portal_endereco_diferente
+      ? data.portal_estado?.trim().toUpperCase() || null
+      : null,
     local_chaves: data.local_chaves,
     chaves_codigo:
       data.local_chaves === "imobiliaria" ? data.chaves_codigo?.trim() || null : null,
@@ -226,6 +431,7 @@ function buildImovelInsert(
   slug: string,
   codigo: string,
   clienteId: string | null,
+  statusSlug: StatusImovelSlug,
 ) {
   return {
     corretor_id: corretorId,
@@ -234,7 +440,9 @@ function buildImovelInsert(
     slug,
     tipo: data.tipo,
     finalidade: data.finalidade,
-    status: data.status,
+    status: statusSlug,
+    status_imovel_id: data.status_imovel_id,
+    data_ativacao: new Date().toISOString(),
     cep: sanitizeCep(data.cep),
     logradouro: data.logradouro.trim(),
     numero: data.numero.trim(),
@@ -257,19 +465,26 @@ function buildImovelInsert(
     diferenciais: data.diferenciais.length > 0 ? data.diferenciais : null,
     video_url: data.video_url?.trim() || null,
     publicado_site: data.publicado_site,
+    publicado_portais: data.publicado_portais,
     visualizacoes: 0,
     ...buildImovelFields(data),
     cliente_id: clienteId,
   };
 }
 
-function buildImovelUpdate(data: ImovelFormValues, slug: string, clienteId: string | null) {
+function buildImovelUpdate(
+  data: ImovelFormValues,
+  slug: string,
+  clienteId: string | null,
+  statusSlug: StatusImovelSlug,
+) {
   return {
     titulo: data.titulo.trim(),
     slug,
     tipo: data.tipo,
     finalidade: data.finalidade,
-    status: data.status,
+    status: statusSlug,
+    status_imovel_id: data.status_imovel_id,
     cep: sanitizeCep(data.cep),
     logradouro: data.logradouro.trim(),
     numero: data.numero.trim(),
@@ -292,6 +507,7 @@ function buildImovelUpdate(data: ImovelFormValues, slug: string, clienteId: stri
     diferenciais: data.diferenciais.length > 0 ? data.diferenciais : null,
     video_url: data.video_url?.trim() || null,
     publicado_site: data.publicado_site,
+    publicado_portais: data.publicado_portais,
     ...buildImovelFields(data),
     cliente_id: clienteId,
   };
@@ -380,7 +596,7 @@ export async function getImoveis(): Promise<Imovel[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("imoveis")
-    .select("*, fotos:imovel_fotos(*)")
+    .select(IMOVEL_SELECT)
     .eq("corretor_id", corretor.id)
     .order("criado_em", { ascending: false });
 
@@ -402,7 +618,7 @@ export async function getImovelById(id: string): Promise<Imovel | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("imoveis")
-    .select("*, fotos:imovel_fotos(*)")
+    .select(IMOVEL_SELECT)
     .eq("id", id)
     .eq("corretor_id", corretor.id)
     .maybeSingle();
@@ -525,7 +741,10 @@ async function uploadFotosForImovel(
     const extension = foto.file.name.split(".").pop()?.toLowerCase() ?? "jpg";
     const filename = `${crypto.randomUUID()}.${extension}`;
     const storagePath = `${corretorId}/${imovelId}/${filename}`;
-    const buffer = Buffer.from(await foto.file.arrayBuffer());
+    const buffer = await processImageBuffer(
+      corretorId,
+      Buffer.from(await foto.file.arrayBuffer()),
+    );
 
     const { error: uploadError } = await admin.storage
       .from(STORAGE_BUCKET_IMOVEIS)
@@ -622,9 +841,11 @@ export async function createImovel(
     };
   }
 
+  const statusSlug = await resolveStatusSlug(corretor.id, data.status_imovel_id);
+
   const { data: imovel, error: insertError } = await supabase
     .from("imoveis")
-    .insert(buildImovelInsert(corretor.id, data, slug, codigo, clienteId))
+    .insert(buildImovelInsert(corretor.id, data, slug, codigo, clienteId, statusSlug))
     .select("id")
     .single();
 
@@ -655,7 +876,10 @@ export async function createImovel(
       const extension = foto.file.name.split(".").pop()?.toLowerCase() ?? "jpg";
       const filename = `${crypto.randomUUID()}.${extension}`;
       const storagePath = `${corretor.id}/${imovel.id}/${filename}`;
-      const buffer = Buffer.from(await foto.file.arrayBuffer());
+      const buffer = await processImageBuffer(
+        corretor.id,
+        Buffer.from(await foto.file.arrayBuffer()),
+      );
 
       const { error: uploadError } = await admin.storage
         .from(STORAGE_BUCKET_IMOVEIS)
@@ -756,9 +980,11 @@ export async function updateImovel(
     };
   }
 
+  const statusSlug = await resolveStatusSlug(corretor.id, data.status_imovel_id);
+
   const { error: updateError } = await supabase
     .from("imoveis")
-    .update(buildImovelUpdate(data, slug, clienteId))
+    .update(buildImovelUpdate(data, slug, clienteId, statusSlug))
     .eq("id", id)
     .eq("corretor_id", corretor.id);
 

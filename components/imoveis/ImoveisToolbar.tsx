@@ -3,33 +3,69 @@
 import { Filter, LayoutGrid, List, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 export type ImoveisViewMode = "grid" | "list";
 
+export type ImoveisSortOption =
+  | "valor_desc"
+  | "valor_asc"
+  | "publicacao_desc"
+  | "publicacao_asc"
+  | "cadastro_desc"
+  | "cadastro_asc"
+  | "bairro_asc"
+  | "captador_asc"
+  | "area_desc"
+  | "area_asc";
+
+export const IMOVEIS_SORT_OPTIONS: { value: ImoveisSortOption; label: string }[] = [
+  { value: "valor_desc", label: "Valor (maior)" },
+  { value: "valor_asc", label: "Valor (menor)" },
+  { value: "publicacao_desc", label: "Publicação (mais recente)" },
+  { value: "publicacao_asc", label: "Publicação (mais antigo)" },
+  { value: "cadastro_desc", label: "Cadastro (mais recente)" },
+  { value: "cadastro_asc", label: "Cadastro (mais antigo)" },
+  { value: "bairro_asc", label: "Bairro (A-Z)" },
+  { value: "captador_asc", label: "Captador (A-Z)" },
+  { value: "area_desc", label: "Área útil (maior)" },
+  { value: "area_asc", label: "Área útil (menor)" },
+];
+
 interface ImoveisToolbarProps {
   search: string;
   onSearchChange: (value: string) => void;
-  filtersOpen: boolean;
-  onToggleFilters: () => void;
   activeFilterCount: number;
+  filtersOpen: boolean;
+  onFiltersToggle: () => void;
   viewMode: ImoveisViewMode;
   onViewModeChange: (mode: ImoveisViewMode) => void;
+  sort: ImoveisSortOption;
+  onSortChange: (sort: ImoveisSortOption) => void;
 }
 
 export function ImoveisToolbar({
   search,
   onSearchChange,
-  filtersOpen,
-  onToggleFilters,
   activeFilterCount,
+  filtersOpen,
+  onFiltersToggle,
   viewMode,
   onViewModeChange,
+  sort,
+  onSortChange,
 }: ImoveisToolbarProps) {
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-      <div className="relative flex-1">
+      <div className="relative min-w-0 flex-1">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           type="search"
@@ -41,21 +77,35 @@ export function ImoveisToolbar({
         />
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
           variant={filtersOpen ? "secondary" : "outline"}
-          onClick={onToggleFilters}
-          className="flex-1 sm:flex-none"
+          onClick={onFiltersToggle}
+          aria-expanded={filtersOpen}
+          aria-controls="imoveis-filters-panel"
         >
-          <Filter data-icon="inline-start" />
+          <Filter className="size-4" data-icon="inline-start" />
           Filtros
           {activeFilterCount > 0 ? (
-            <span className="ml-1 inline-flex size-5 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground">
+            <span className="ml-1 rounded-full bg-primary px-1.5 py-0.5 text-xs text-primary-foreground">
               {activeFilterCount}
             </span>
           ) : null}
         </Button>
+
+        <Select value={sort} onValueChange={(value) => onSortChange(value as ImoveisSortOption)}>
+          <SelectTrigger className="w-full sm:w-48" aria-label="Ordenar por">
+            <SelectValue placeholder="Ordenar por" />
+          </SelectTrigger>
+          <SelectContent>
+            {IMOVEIS_SORT_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         <div className="flex rounded-lg border border-border p-0.5">
           <Button

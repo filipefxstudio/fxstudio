@@ -6,7 +6,6 @@ import { notFound, redirect } from "next/navigation";
 
 import { ClienteDetalhesClient } from "@/components/clientes/ClienteDetalhesClient";
 import { TipoClienteBadge } from "@/components/clientes/TipoClienteBadge";
-import { Header } from "@/components/dashboard/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -56,24 +55,19 @@ export default async function ClienteDetalhePage({
 
   if (editar === "1") {
     return (
-      <>
-        <Header nome={corretor.nome} />
-        <div className="flex-1 space-y-4 p-4 md:p-6">
-          <Button variant="ghost" size="sm" asChild>
-            <Link href={`/dashboard/clientes/${id}`}>← Voltar</Link>
-          </Button>
-          <ClienteDetalhesClient mode="edit" cliente={cliente} />
-        </div>
-      </>
+      <div className="flex-1 space-y-4 p-4 md:p-6">
+        <Button variant="ghost" size="sm" asChild>
+          <Link href={`/dashboard/clientes/${id}`}>← Voltar</Link>
+        </Button>
+        <ClienteDetalhesClient mode="edit" cliente={cliente} />
+      </div>
     );
   }
 
   const dataCadastro = format(new Date(cliente.criado_em), "dd/MM/yyyy", { locale: ptBR });
 
   return (
-    <>
-      <Header nome={corretor.nome} />
-      <div className="flex-1 space-y-6 p-4 md:p-6">
+    <div className="flex-1 space-y-6 p-4 md:p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <Button variant="ghost" size="sm" asChild className="mb-2 -ml-2">
@@ -158,7 +152,7 @@ export default async function ClienteDetalhePage({
                       <li key={lead.id} className="flex items-center justify-between py-3 text-sm">
                         <span>{lead.nome ?? "Lead sem nome"} — {lead.etapa}</span>
                         <Link
-                          href="/dashboard/leads"
+                          href="/dashboard/atendimentos"
                           className="text-primary hover:underline"
                         >
                           Ver leads
@@ -171,7 +165,6 @@ export default async function ClienteDetalhePage({
             </Card>
           ) : null}
         </div>
-      </div>
-    </>
+    </div>
   );
 }

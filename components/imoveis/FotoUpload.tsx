@@ -225,12 +225,12 @@ export function FotoUpload({ fotos, onChange, disabled }: FotoUploadProps) {
 
       {fotos.length > 0 ? (
         <DragDropContext onDragEnd={handleDragEnd}>
-          <Droppable droppableId="fotos">
+          <Droppable droppableId="fotos" direction="horizontal">
             {(provided) => (
               <ul
                 ref={provided.innerRef}
                 {...provided.droppableProps}
-                className="space-y-3"
+                className="grid grid-cols-2 gap-4 lg:grid-cols-4"
               >
                 {fotos.map((foto, index) => (
                   <Draggable key={foto.id} draggableId={foto.id} index={index}>
@@ -238,65 +238,60 @@ export function FotoUpload({ fotos, onChange, disabled }: FotoUploadProps) {
                       const { style, ...draggableProps } = dragProvided.draggableProps;
 
                       return (
-                      <li
-                        ref={dragProvided.innerRef}
-                        {...draggableProps}
-                        style={style as CSSProperties}
-                        className={cn(
-                          "flex gap-3 rounded-xl border border-border bg-card p-3",
-                          snapshot.isDragging && "shadow-md",
-                        )}
-                      >
-                        <button
-                          type="button"
-                          className="mt-1 shrink-0 cursor-grab text-muted-foreground active:cursor-grabbing"
-                          aria-label="Reordenar foto"
-                          {...dragProvided.dragHandleProps}
-                          disabled={disabled}
+                        <li
+                          ref={dragProvided.innerRef}
+                          {...draggableProps}
+                          style={style as CSSProperties}
+                          className={cn(
+                            "space-y-2 rounded-xl border border-border bg-card p-2",
+                            snapshot.isDragging && "shadow-md",
+                          )}
                         >
-                          <GripVertical className="size-4" />
-                        </button>
-
-                        <div className="relative size-20 shrink-0 overflow-hidden rounded-lg bg-muted">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={foto.previewUrl}
-                            alt={foto.legenda || `Foto ${index + 1}`}
-                            className="size-full object-cover"
-                          />
-                          {index === 0 ? (
-                            <span className="absolute bottom-0 left-0 right-0 bg-primary/90 px-1 py-0.5 text-center text-[10px] font-medium text-primary-foreground">
-                              Capa
-                            </span>
-                          ) : null}
-                        </div>
-
-                        <div className="min-w-0 flex-1 space-y-2">
-                          <p className="truncate text-xs text-muted-foreground">
-                            {foto.file?.name ?? "Foto existente"}
-                          </p>
+                          <div className="relative aspect-[4/3] overflow-hidden rounded-lg bg-muted">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={foto.previewUrl}
+                              alt={foto.legenda || `Foto ${index + 1}`}
+                              className="size-full object-cover"
+                            />
+                            {index === 0 ? (
+                              <span className="absolute bottom-0 left-0 right-0 bg-primary/90 px-1 py-0.5 text-center text-[10px] font-medium text-primary-foreground">
+                                Capa
+                              </span>
+                            ) : null}
+                            <div className="absolute right-1 top-1 flex gap-1">
+                              <button
+                                type="button"
+                                className="cursor-grab rounded bg-background/90 p-1 text-muted-foreground active:cursor-grabbing"
+                                aria-label="Reordenar foto"
+                                {...dragProvided.dragHandleProps}
+                                disabled={disabled}
+                              >
+                                <GripVertical className="size-3.5" />
+                              </button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                className="size-7 bg-background/90 text-destructive hover:text-destructive"
+                                onClick={() => handleRemove(foto.id)}
+                                disabled={disabled}
+                                aria-label="Remover foto"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </div>
+                          </div>
                           <Input
-                            placeholder="Legenda (opcional)"
+                            placeholder="Legenda"
                             value={foto.legenda}
                             onChange={(event) =>
                               handleLegendaChange(foto.id, event.target.value)
                             }
                             disabled={disabled}
+                            className="text-xs"
                           />
-                        </div>
-
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          className="shrink-0 text-destructive hover:text-destructive"
-                          onClick={() => handleRemove(foto.id)}
-                          disabled={disabled}
-                          aria-label="Remover foto"
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      </li>
+                        </li>
                       );
                     }}
                   </Draggable>

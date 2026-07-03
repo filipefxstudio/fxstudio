@@ -2,11 +2,13 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { ConfiguracoesTabs } from "@/components/configuracoes/ConfiguracoesTabs";
-import { Header } from "@/components/dashboard/Header";
 import { getAgenteConfig } from "@/lib/actions/agente-config";
+import { getDashboardConfig } from "@/lib/actions/dashboard-config";
 import {
+  getMarcaDaguaConfig,
   getMidiasOrigem,
   getPerfisEquipe,
+  getStatusImovelConfig,
   getTiposImovelCustom,
 } from "@/lib/actions/configuracoes";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
@@ -38,21 +40,22 @@ export default async function ConfiguracoesPage() {
 
   const plano = obterPlanoAtivo(assinaturas ?? undefined);
   const agenteConfigResult = await getAgenteConfig(corretor.id);
-  const [tiposImovel, midiasOrigem, perfisEquipe] = await Promise.all([
-    getTiposImovelCustom(),
-    getMidiasOrigem(),
-    getPerfisEquipe(),
-  ]);
+  const [tiposImovel, midiasOrigem, perfisEquipe, statusImovel, marcaDaguaConfig, dashboardConfig] =
+    await Promise.all([
+      getTiposImovelCustom(),
+      getMidiasOrigem(),
+      getPerfisEquipe(),
+      getStatusImovelConfig(),
+      getMarcaDaguaConfig(),
+      getDashboardConfig(),
+    ]);
 
-  if ("error" in agenteConfigResult) {
+  if ("error" in agenteConfigResult || !dashboardConfig) {
     redirect("/dashboard");
   }
 
   return (
-    <>
-      <Header nome={corretor.nome} />
-
-      <div className="flex-1 space-y-6 p-4 md:p-6">
+    <div className="flex-1 space-y-6 p-4 md:p-6">
         <div>
           <h2 className="text-lg font-semibold text-primary">Configurações</h2>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -67,8 +70,10 @@ export default async function ConfiguracoesPage() {
           tiposImovel={tiposImovel}
           midiasOrigem={midiasOrigem}
           perfisEquipe={perfisEquipe}
+          statusImovel={statusImovel}
+          marcaDaguaConfig={marcaDaguaConfig}
+          dashboardConfig={dashboardConfig}
         />
-      </div>
-    </>
+    </div>
   );
 }

@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
-import { Header } from "@/components/dashboard/Header";
 import { ImovelDetalhes } from "@/components/imoveis/ImovelDetalhes";
-import { getImovelById } from "@/lib/actions/imoveis";
+import { getImovelById, getStatusImovelList } from "@/lib/actions/imoveis";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 
 interface ImovelDetailPageProps {
@@ -30,19 +29,22 @@ export default async function ImovelDetailPage({ params }: ImovelDetailPageProps
   }
 
   const { id } = await params;
-  const imovel = await getImovelById(id);
+  const [imovel, statusList] = await Promise.all([
+    getImovelById(id),
+    getStatusImovelList(corretor.id),
+  ]);
 
   if (!imovel) {
     notFound();
   }
 
   return (
-    <>
-      <Header nome={corretor.nome} />
-
-      <div className="flex-1 p-4 md:p-6">
-        <ImovelDetalhes imovel={imovel} corretorSlug={corretor.slug} />
-      </div>
-    </>
+    <div className="flex-1 p-4 md:p-6">
+      <ImovelDetalhes
+        imovel={imovel}
+        corretorSlug={corretor.slug}
+        statusList={statusList}
+      />
+    </div>
   );
 }

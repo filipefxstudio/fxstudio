@@ -1,0 +1,424 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { ArrowUpDown, MessageCircle, MoreVertical, Phone, Plus } from "lucide-react";
+
+import { FunilKanban } from "@/components/dashboard/FunilKanban";
+import { LeadCardGrid } from "@/components/leads/LeadCardGrid";
+import { LeadCardList } from "@/components/leads/LeadCardList";
+import {
+  countActiveLeadsFilters,
+  defaultLeadsFilters,
+  LeadsFilters,
+  type LeadsFilterState,
+} from "@/components/leads/LeadsFilters";
+import { LeadsToolbar } from "@/components/leads/LeadsToolbar";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  DEFAULT_DIAS_ALERTA_INATIVIDADE,
+  isAtendimentosSortMode,
+  isLeadsViewMode,
+  STORAGE_KEY_ATENDIMENTOS_SORT,
+  STORAGE_KEY_DIAS_ALERTA_INATIVIDADE,
+  STORAGE_KEY_LEADS_VIEW,
+  type AtendimentosSortMode,
+  type LeadsViewMode,
+} from "@/lib/constants/config";
+import { ETAPA_FUNIL_ORDEM } from "@/lib/leads/etapa-order";
+import { parseLeadObservacoes } from "@/lib/leads/observacoes";
+import { getUltimaAtividadeEm, isLeadAtivo } from "@/lib/leads/format";
+import {
+  buildTelLink,
+  buildWhatsAppLink,
+} from "@/lib/leads/format";
+import { marcarContatoFeito, qualificarLead } from "@/lib/actions/atendimentos";
+import { toast } from "@/hooks/use-toast";
+import type { Lead, MidiaOrigem } from "@/types";
+
+interface AtendimentosPageProps {
+  initialLeads: Lead[];
+  corretorId: string;
+  midias: MidiaOrigem[];
+  perfis: { id: string; nome: string }[];
+  initialFilters?: Partial<LeadsFilterState>;
+}
+
+function matchesSearch(lead: Lead, query: string): boolean {
+  if (!query.trim()) return true;
+
+  const normalized = query.trim().toLowerCase();
+  const digits = query.replace(/\D/g, "");
+  const telefoneDigits = lead.telefone?.replace(/\D/g, "") ?? "";
+
+  return (
+    (lead.nome?.toLowerCase().includes(normalized) ?? false) ||
+    (lead.telefone?.toLowerCase().includes(normalized) ?? false) ||
+    (digits.length > 0 && telefoneDigits.includes(digits))
+  );
+}
+
+function matchesFilters(lead: Lead, filters: LeadsFilterState): boolean {
+  if (!isLeadAtivo(lead)) return false;
+
+  if (filters.temperatura !== "all" && lead.temperatura !== filters.temperatura) {
+    return false;
+  }
+
+  if (filters.etapa !== "all" && lead.etapa !== filters.etapa) {
+    return false;
+  }
+
+  if (filters.finalidade !== "all" && lead.finalidade_busca !== filters.finalidade) {
+    return false;
+  }
+
+  if (filters.origem !== "all") {
+    const match =
+      lead.origem === filters.origem ||
+      lead.origem.toLowerCase() === filters.origem.toLowerCase();
+    if (!match) return false;
+  }
+
+  if (filters.perfilId !== "all") {
+    const { meta } = parseLeadObservacoes(lead.observacoes);
+    if (meta.perfil_id !== filters.perfilId) return false;
+  }
+
+  if (filters.semInteracaoDias !== null) {
+    const limite = new Date();
+    limite.setDate(limite.getDate() - filters.semInteracaoDias);
+    if (new Date(getUltimaAtividadeEm(lead)) > limite) return false;
+  }
+
+  return true;
+}
+
+function sortLeads(leads: Lead[], mode: AtendimentosSortMode): Lead[] {
+  const sorted = [...leads];
+  switch (mode) {
+    case "antigos":
+      return sorted.sort(
+        (a, b) => new Date(a.criado_em).getTime() - new Date(b.criado_em).getTime(),
+      );
+    case "nome_asc":
+      return sorted.sort((a, b) =>
+        (a.nome ?? "").localeCompare(b.nome ?? "", "pt-BR"),
+      );
+    case "nome_desc":
+      return sorted.sort((a, b) =>
+        (b.nome ?? "").localeCompare(a.nome ?? "", "pt-BR"),
+      );
+    case "etapa":
+      return sorted.sort(
+        (a, b) => ETAPA_FUNIL_ORDEM[a.etapa] - ETAPA_FUNIL_ORDEM[b.etapa],
+      );
+    case "recentes":
+    default:
+      return sorted.sort(
+        (a, b) => new Date(b.criado_em).getTime() - new Date(a.criado_em).getTime(),
+      );
+  }
+}
+
+export function AtendimentosPage({
+  initialLeads,
+  corretorId,
+  midias,
+  perfis,
+  initialFilters,
+}: AtendimentosPageProps) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [search, setSearch] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<LeadsViewMode>("kanban");
+  const [sortMode, setSortMode] = useState<AtendimentosSortMode>("recentes");
+  const [filters, setFilters] = useState<LeadsFilterState>({
+    ...defaultLeadsFilters,
+    ...initialFilters,
+  });
+  const [diasAlerta, setDiasAlerta] = useState(DEFAULT_DIAS_ALERTA_INATIVIDADE);
+
+  useEffect(() => {
+    const storedView = localStorage.getItem(STORAGE_KEY_LEADS_VIEW);
+    if (storedView && isLeadsViewMode(storedView)) {
+      setViewMode(storedView);
+    }
+
+    const storedSort = localStorage.getItem(STORAGE_KEY_ATENDIMENTOS_SORT);
+    if (storedSort && isAtendimentosSortMode(storedSort)) {
+      setSortMode(storedSort);
+    }
+
+    const storedDias = localStorage.getItem(STORAGE_KEY_DIAS_ALERTA_INATIVIDADE);
+    if (storedDias) {
+      const parsed = Number(storedDias);
+      if (!Number.isNaN(parsed) && parsed > 0) {
+        setDiasAlerta(parsed);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (initialFilters && Object.keys(initialFilters).length > 0) {
+      setFiltersOpen(true);
+    }
+  }, [initialFilters]);
+
+  function handleViewModeChange(mode: LeadsViewMode) {
+    setViewMode(mode);
+    localStorage.setItem(STORAGE_KEY_LEADS_VIEW, mode);
+  }
+
+  function handleSortChange(mode: AtendimentosSortMode) {
+    setSortMode(mode);
+    localStorage.setItem(STORAGE_KEY_ATENDIMENTOS_SORT, mode);
+  }
+
+  const filteredLeads = useMemo(() => {
+    const filtered = initialLeads.filter(
+      (lead) => matchesSearch(lead, search) && matchesFilters(lead, filters),
+    );
+    return sortLeads(filtered, sortMode);
+  }, [initialLeads, search, filters, sortMode]);
+
+  const ativosCount = useMemo(
+    () => initialLeads.filter(isLeadAtivo).length,
+    [initialLeads],
+  );
+
+  function runCardAction(
+    leadId: string,
+    action: () => Promise<{ error?: string; message?: string }>,
+  ) {
+    startTransition(async () => {
+      const result = await action();
+      if (result.error) {
+        toast({ variant: "destructive", title: "Erro", description: result.error });
+        return;
+      }
+      toast({ title: result.message });
+      router.refresh();
+    });
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-primary">Atendimentos</h2>
+          <p className="text-sm text-muted-foreground">
+            {ativosCount} atendimento{ativosCount === 1 ? "" : "s"} ativo
+            {ativosCount === 1 ? "" : "s"}
+          </p>
+        </div>
+        <Button asChild>
+          <Link href="/dashboard/atendimentos/novo">
+            <Plus data-icon="inline-start" />
+            Novo atendimento
+          </Link>
+        </Button>
+      </div>
+
+      <LeadsToolbar
+        search={search}
+        onSearchChange={setSearch}
+        filtersOpen={filtersOpen}
+        onToggleFilters={() => setFiltersOpen((prev) => !prev)}
+        activeFilterCount={countActiveLeadsFilters(filters)}
+        viewMode={viewMode}
+        onViewModeChange={handleViewModeChange}
+      />
+
+      {viewMode !== "kanban" ? (
+        <div className="flex items-center gap-2">
+          <ArrowUpDown className="size-4 text-muted-foreground" />
+          <Select value={sortMode} onValueChange={(v) => handleSortChange(v as AtendimentosSortMode)}>
+            <SelectTrigger className="w-48">
+              <SelectValue placeholder="Ordenar por" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="recentes">Mais recentes</SelectItem>
+              <SelectItem value="antigos">Mais antigos</SelectItem>
+              <SelectItem value="nome_asc">Nome A–Z</SelectItem>
+              <SelectItem value="nome_desc">Nome Z–A</SelectItem>
+              <SelectItem value="etapa">Etapa do funil</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
+
+      {filtersOpen ? (
+        <LeadsFilters
+          filters={filters}
+          onChange={setFilters}
+          midias={midias}
+          perfis={perfis}
+          diasAlertaDefault={diasAlerta}
+        />
+      ) : null}
+
+      {viewMode === "kanban" ? (
+        <FunilKanban
+          initialLeads={filteredLeads}
+          corretorId={corretorId}
+          hideHeader
+        />
+      ) : null}
+
+      {viewMode === "grade" ? (
+        <LeadCardGrid leads={filteredLeads} basePath="/dashboard/atendimentos">
+          {(lead) => (
+            <AtendimentoCardActions
+              lead={lead}
+              disabled={isPending}
+              onContatoFeito={() => runCardAction(lead.id, () => marcarContatoFeito(lead.id))}
+              onQualificar={() => runCardAction(lead.id, () => qualificarLead(lead.id))}
+            />
+          )}
+        </LeadCardGrid>
+      ) : null}
+
+      {viewMode === "lista" ? (
+        <LeadCardList leads={filteredLeads} basePath="/dashboard/atendimentos">
+          {(lead) => (
+            <AtendimentoCardActions
+              lead={lead}
+              disabled={isPending}
+              onContatoFeito={() => runCardAction(lead.id, () => marcarContatoFeito(lead.id))}
+              onQualificar={() => runCardAction(lead.id, () => qualificarLead(lead.id))}
+            />
+          )}
+        </LeadCardList>
+      ) : null}
+    </div>
+  );
+}
+
+function AtendimentoCardActions({
+  lead,
+  disabled,
+  onContatoFeito,
+  onQualificar,
+}: {
+  lead: Lead;
+  disabled: boolean;
+  onContatoFeito: () => void;
+  onQualificar: () => void;
+}) {
+  const router = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const telLink = buildTelLink(lead.telefone);
+  const waLink = buildWhatsAppLink(lead.telefone);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [menuOpen]);
+
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-2">
+      {telLink ? (
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            window.location.href = telLink;
+          }}
+        >
+          <Phone className="size-3.5" />
+          Ligar
+        </button>
+      ) : null}
+      {waLink ? (
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-lg border border-[#2DC653]/40 bg-[#2DC653]/10 px-3 py-1.5 text-xs font-medium text-[#1a7a34]"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            window.open(waLink, "_blank", "noopener,noreferrer");
+          }}
+        >
+          <MessageCircle className="size-3.5" />
+          WhatsApp
+        </button>
+      ) : null}
+      <div className="relative" ref={menuRef}>
+        <button
+          type="button"
+          className="inline-flex items-center rounded-lg border border-border px-2 py-1.5"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setMenuOpen((open) => !open);
+          }}
+        >
+          <MoreVertical className="size-3.5" />
+        </button>
+        {menuOpen ? (
+          <div className="absolute right-0 z-10 mt-1 min-w-36 rounded-lg border border-border bg-card py-1 shadow-lg">
+            <button
+              type="button"
+              disabled={disabled}
+              className="block w-full px-3 py-2 text-left text-xs hover:bg-muted"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setMenuOpen(false);
+                onContatoFeito();
+              }}
+            >
+              Contato feito
+            </button>
+            <button
+              type="button"
+              disabled={disabled}
+              className="block w-full px-3 py-2 text-left text-xs hover:bg-muted"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setMenuOpen(false);
+                onQualificar();
+              }}
+            >
+              Qualificar
+            </button>
+            <button
+              type="button"
+              className="block w-full px-3 py-2 text-left text-xs hover:bg-muted"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setMenuOpen(false);
+                router.push(`/dashboard/atendimentos/${lead.id}`);
+              }}
+            >
+              Abrir atendimento
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}

@@ -11,7 +11,7 @@ import type {
 } from "@/types";
 
 const CORRETOR_PUBLIC_COLUMNS =
-  "id, user_id, nome, email, telefone, creci, slug, dominio_custom, foto_url, sobre, whatsapp, criado_em, atualizado_em";
+  "id, user_id, nome, email, telefone, creci, slug, dominio_custom, foto_url, logo_url, site_cor_primaria, site_cor_secundaria, hero_image_url, sobre, sobre_titulo, sobre_texto, sobre_foto_url, contato_email, contato_telefone, contato_endereco, contato_horario, whatsapp, criado_em, atualizado_em";
 
 async function createSiteReadClient() {
   try {
@@ -25,6 +25,7 @@ export interface ImoveisPublicosFilters {
   tipo?: TipoImovel;
   finalidade?: FinalidadeImovel;
   bairro?: string;
+  codigo?: string;
   valorMin?: number;
   valorMax?: number;
 }
@@ -111,6 +112,13 @@ export const getImoveisPublicos = cache(
       query = query.ilike("bairro", `%${filters.bairro}%`);
     }
 
+    if (filters.codigo) {
+      const codigo = filters.codigo.trim();
+      query = query.or(
+        `codigo.ilike.%${codigo}%,codigo_personalizado.ilike.%${codigo}%`,
+      );
+    }
+
     if (filters.valorMin !== undefined) {
       if (filters.finalidade === "locacao") {
         query = query.gte("valor_locacao", filters.valorMin);
@@ -190,4 +198,22 @@ export const getBairrosPublicos = cache(async (corretorId: string): Promise<stri
   }
 
   return [...bairros].sort((a, b) => a.localeCompare(b, "pt-BR"));
+});
+
+export const hasImoveisLocacao = cache(async (corretorId: string): Promise<boolean> => {
+  const supabase = await createSiteReadClient();
+
+  const { count, error } = await supabase
+    .from("imoveis")
+    .select("id", { count: "exact", head: true })
+    .eq("corretor_id", corretorId)
+    .eq("publicado_site", true)
+    .eq("status", "disponivel")
+    .eq("finalidade", "locacao");
+
+  if (error) {
+    return false;
+  }
+
+  return (count ?? 0) > 0;
 });

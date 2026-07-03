@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { searchClientes, type ClienteSearchResult } from "@/lib/actions/clientes";
+import { formatTelefoneBr } from "@/lib/imoveis/telefone";
 import { cn } from "@/lib/utils";
 import type { ImovelFormValues } from "@/lib/validations/imovel";
 
@@ -189,8 +190,10 @@ export function ProprietarioSection({
                   <Label>Telefone *</Label>
                   <Input
                     value={field.value ?? ""}
-                    onChange={field.onChange}
-                    placeholder="(31) 99999-9999"
+                    onChange={(event) =>
+                      field.onChange(formatTelefoneBr(event.target.value))
+                    }
+                    placeholder="(31) 99999-7020"
                     disabled={disabled}
                   />
                 </div>

@@ -1,21 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import {
   Bath,
   BedDouble,
+  BedSingle,
   Car,
   Check,
   MapPin,
   Maximize2,
-  Pencil,
-  Share2,
-  Trash2,
+  MessageCircle,
+  Phone,
+  Ruler,
 } from "lucide-react";
 
-import { DeleteImovelDialog } from "@/components/imoveis/DeleteImovelDialog";
+import { ImovelAcoesDropdown } from "@/components/imoveis/ImovelAcoesDropdown";
 import { ImovelGaleriaDetalhes } from "@/components/imoveis/ImovelGaleriaDetalhes";
 import { StatusBadge } from "@/components/imoveis/StatusBadge";
 import { ImovelMapa } from "@/components/site/ImovelMapa";
@@ -23,15 +23,11 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import { toast } from "@/hooks/use-toast";
-import { updatePublicadoSite } from "@/lib/actions/imoveis";
-import { getImovelCodigo, getPublicImovelUrl } from "@/lib/imoveis/format";
+import { getImovelCodigo } from "@/lib/imoveis/format";
+import { buildTelLinkLocal, buildWhatsAppLink } from "@/lib/imoveis/telefone";
 import {
   formatCurrency,
   formatEndereco,
@@ -39,19 +35,36 @@ import {
   getTipoLabel,
   getValorExibicao,
 } from "@/lib/site/format";
-import { STATUS_IMOVEL } from "@/lib/constants/imoveis";
-import type { Imovel } from "@/types";
+import type { Imovel, StatusImovel } from "@/types";
 
 interface ImovelDetalhesProps {
   imovel: Imovel;
   corretorSlug: string;
+  statusList: StatusImovel[];
 }
 
-export function ImovelDetalhes({ imovel, corretorSlug }: ImovelDetalhesProps) {
-  const router = useRouter();
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [publicadoSite, setPublicadoSite] = useState(imovel.publicado_site);
-  const [isPending, startTransition] = useTransition();
+function formatDate(value: string | null | undefined): string {
+  if (!value) {
+    return "—";
+  }
+
+  return new Date(value).toLocaleDateString("pt-BR");
+}
+
+const INFO_ADICIONAL_FIELDS: {
+  key: keyof Imovel;
+  label: string;
+}[] = [
+  { key: "aceita_financiamento", label: "Aceita financiamento" },
+  { key: "aceita_permuta", label: "Aceita permuta" },
+  { key: "exclusividade", label: "Exclusividade" },
+  { key: "imovel_na_planta", label: "Imóvel na planta" },
+  { key: "imovel_ocupado", label: "Imóvel ocupado" },
+  { key: "contrato_aluguel_ativo", label: "Contrato de aluguel ativo" },
+];
+
+export function ImovelDetalhes({ imovel: initialImovel, corretorSlug, statusList }: ImovelDetalhesProps) {
+  const [imovel, setImovel] = useState(initialImovel);
 
   const titulo = imovel.titulo ?? "Sem título";
   const codigo = getImovelCodigo(imovel);
@@ -59,53 +72,13 @@ export function ImovelDetalhes({ imovel, corretorSlug }: ImovelDetalhesProps) {
   const fotos = imovel.fotos ?? [];
   const diferenciais = imovel.diferenciais ?? [];
   const hasMap = imovel.latitude != null && imovel.longitude != null;
+  const cliente = imovel.cliente;
+  const telLink = buildTelLinkLocal(cliente?.telefone);
+  const waLink = buildWhatsAppLink(cliente?.telefone);
 
-  function handleShare() {
-    if (!imovel.slug) {
-      toast({
-        variant: "destructive",
-        title: "Link indisponível",
-        description: "Este imóvel ainda não possui slug para compartilhamento.",
-      });
-      return;
-    }
-
-    const url = getPublicImovelUrl(corretorSlug, imovel.slug);
-
-    void navigator.clipboard.writeText(url).then(() => {
-      toast({
-        title: "Link copiado",
-        description: "O link público do imóvel foi copiado para a área de transferência.",
-      });
-    });
-  }
-
-  function handlePublicadoSiteChange(checked: boolean) {
-    setPublicadoSite(checked);
-
-    startTransition(async () => {
-      const result = await updatePublicadoSite(imovel.id, checked);
-
-      if (result.error) {
-        setPublicadoSite(!checked);
-        toast({
-          variant: "destructive",
-          title: "Erro ao atualizar",
-          description: result.error,
-        });
-        return;
-      }
-
-      toast({
-        title: checked ? "Publicado no site" : "Removido do site",
-        description: checked
-          ? "O imóvel agora está visível na vitrine pública."
-          : "O imóvel foi ocultado da vitrine pública.",
-      });
-
-      router.refresh();
-    });
-  }
+  const infoAdicional = INFO_ADICIONAL_FIELDS.filter(
+    (field) => imovel[field.key] === true,
+  );
 
   return (
     <div className="space-y-6">
@@ -123,29 +96,30 @@ export function ImovelDetalhes({ imovel, corretorSlug }: ImovelDetalhesProps) {
           <h2 className="text-xl font-semibold text-primary md:text-2xl">{titulo}</h2>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={handleShare}>
-            <Share2 data-icon="inline-start" />
-            Compartilhar
-          </Button>
-          <Button variant="outline" size="sm" asChild>
-            <Link href={`/dashboard/imoveis/${imovel.id}/editar`}>
-              <Pencil data-icon="inline-start" />
-              Editar
-            </Link>
-          </Button>
-          <Button variant="destructive" size="sm" onClick={() => setDeleteOpen(true)}>
-            <Trash2 data-icon="inline-start" />
-            Excluir
-          </Button>
-        </div>
+        <ImovelAcoesDropdown
+          imovel={imovel}
+          corretorSlug={corretorSlug}
+          statusList={statusList}
+          variant="header"
+          onValidarAtualizacao={(data) =>
+            setImovel((prev) => ({ ...prev, data_ultima_atualizacao: data }))
+          }
+          onStatusChange={(statusId) => {
+            const status = statusList.find((item) => item.id === statusId);
+            setImovel((prev) => ({
+              ...prev,
+              status_imovel_id: statusId,
+              status_imovel: status ?? prev.status_imovel,
+            }));
+          }}
+        />
       </div>
 
       <ImovelGaleriaDetalhes fotos={fotos} titulo={titulo} />
 
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <StatusBadge status={imovel.status} />
+          <StatusBadge status={imovel.status} statusImovel={imovel.status_imovel} />
           <span className="text-sm text-muted-foreground">
             {getFinalidadeLabel(imovel.finalidade)} • {getTipoLabel(imovel.tipo)}
           </span>
@@ -162,6 +136,10 @@ export function ImovelDetalhes({ imovel, corretorSlug }: ImovelDetalhesProps) {
             {imovel.quartos} quartos
           </span>
           <span className="inline-flex items-center gap-1.5">
+            <BedSingle className="size-4" />
+            {imovel.suites} suítes
+          </span>
+          <span className="inline-flex items-center gap-1.5">
             <Bath className="size-4" />
             {imovel.banheiros} banheiros
           </span>
@@ -175,12 +153,15 @@ export function ImovelDetalhes({ imovel, corretorSlug }: ImovelDetalhesProps) {
               {imovel.area_util} m² útil
             </span>
           ) : null}
-          {imovel.suites ? (
-            <span>{imovel.suites} suítes</span>
+          {imovel.area_total ? (
+            <span className="inline-flex items-center gap-1.5">
+              <Ruler className="size-4" />
+              {imovel.area_total} m² total
+            </span>
           ) : null}
         </div>
 
-        <p className="text-2xl font-black text-black">{getValorExibicao(imovel)}</p>
+        <p className="text-2xl font-black text-primary">{getValorExibicao(imovel)}</p>
       </div>
 
       {imovel.descricao ? (
@@ -217,8 +198,7 @@ export function ImovelDetalhes({ imovel, corretorSlug }: ImovelDetalhesProps) {
             <div className="flex justify-between gap-4 border-b border-border pb-2 sm:block">
               <dt className="text-muted-foreground">Status</dt>
               <dd className="font-medium">
-                {STATUS_IMOVEL.find((item) => item.value === imovel.status)?.label ??
-                  imovel.status}
+                {imovel.status_imovel?.nome ?? imovel.status}
               </dd>
             </div>
             {imovel.finalidade === "venda" ? (
@@ -266,6 +246,24 @@ export function ImovelDetalhes({ imovel, corretorSlug }: ImovelDetalhesProps) {
         </Card>
       ) : null}
 
+      {infoAdicional.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Informações adicionais</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="grid gap-2 sm:grid-cols-2">
+              {infoAdicional.map((field) => (
+                <li key={field.key} className="flex items-center gap-2 text-sm">
+                  <Check className="size-4 shrink-0 text-secondary" />
+                  {field.label}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {hasMap ? (
         <Card>
           <CardHeader>
@@ -283,42 +281,13 @@ export function ImovelDetalhes({ imovel, corretorSlug }: ImovelDetalhesProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Publicação nos portais</CardTitle>
-          <CardDescription>Gerencie onde este imóvel está visível.</CardDescription>
+          <CardTitle>Publicação</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between gap-4 rounded-lg border border-border px-4 py-3">
-            <div>
-              <Label htmlFor="publicado-site" className="text-sm font-medium">
-                Site do corretor
-              </Label>
-              <p className="text-xs text-muted-foreground">
-                Exibir na vitrine pública do seu site
-              </p>
-            </div>
-            <Switch
-              id="publicado-site"
-              checked={publicadoSite}
-              onCheckedChange={handlePublicadoSiteChange}
-              disabled={isPending}
-            />
-          </div>
-
-          <div className="flex items-center justify-between gap-4 rounded-lg border border-dashed border-border px-4 py-3 opacity-60">
-            <div>
-              <p className="text-sm font-medium">ZAP Imóveis</p>
-              <p className="text-xs text-muted-foreground">Integração em breve</p>
-            </div>
-            <Switch disabled checked={false} />
-          </div>
-
-          <div className="flex items-center justify-between gap-4 rounded-lg border border-dashed border-border px-4 py-3 opacity-60">
-            <div>
-              <p className="text-sm font-medium">Viva Real</p>
-              <p className="text-xs text-muted-foreground">Integração em breve</p>
-            </div>
-            <Switch disabled checked={false} />
-          </div>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Site: {imovel.publicado_site ? "Sim" : "Não"} | Portais:{" "}
+            {imovel.publicado_portais ? "Sim" : "Não"}
+          </p>
         </CardContent>
       </Card>
 
@@ -327,16 +296,67 @@ export function ImovelDetalhes({ imovel, corretorSlug }: ImovelDetalhesProps) {
           <CardTitle>Proprietário</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">Não cadastrado</p>
+          {cliente ? (
+            <div className="space-y-3">
+              <p className="font-medium">{cliente.nome}</p>
+              <div className="flex flex-wrap gap-2">
+                {telLink ? (
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={telLink}>
+                      <Phone data-icon="inline-start" />
+                      Ligar
+                    </a>
+                  </Button>
+                ) : null}
+                {waLink ? (
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={waLink} target="_blank" rel="noopener noreferrer">
+                      <MessageCircle data-icon="inline-start" />
+                      WhatsApp
+                    </a>
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Proprietário não cadastrado.{" "}
+              <Link
+                href={`/dashboard/imoveis/${imovel.id}/editar`}
+                className="text-primary underline-offset-4 hover:underline"
+              >
+                Cadastrar na edição
+              </Link>
+            </p>
+          )}
         </CardContent>
       </Card>
 
-      <DeleteImovelDialog
-        imovelId={imovel.id}
-        imovelTitulo={titulo}
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-      />
+      <Card>
+        <CardHeader>
+          <CardTitle>Histórico do imóvel</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <dl className="grid gap-2 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-muted-foreground">Cadastrado em</dt>
+              <dd className="font-medium">{formatDate(imovel.criado_em)}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Ativado em</dt>
+              <dd className="font-medium">{formatDate(imovel.data_ativacao)}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Última atualização</dt>
+              <dd className="font-medium">{formatDate(imovel.data_ultima_atualizacao)}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Desativado em</dt>
+              <dd className="font-medium">{formatDate(imovel.data_desativacao)}</dd>
+            </div>
+          </dl>
+        </CardContent>
+      </Card>
     </div>
   );
 }

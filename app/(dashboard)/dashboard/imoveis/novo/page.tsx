@@ -4,8 +4,8 @@ import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
 import { ImovelForm } from "@/components/imoveis/ImovelForm";
-import { Header } from "@/components/dashboard/Header";
 import { Button } from "@/components/ui/button";
+import { getStatusImovelList } from "@/lib/actions/imoveis";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 
 export const metadata: Metadata = {
@@ -20,11 +20,10 @@ export default async function NovoImovelPage() {
     redirect("/login");
   }
 
-  return (
-    <>
-      <Header nome={corretor.nome} />
+  const statusList = await getStatusImovelList(corretor.id);
 
-      <div className="flex-1 space-y-6 p-4 md:p-6">
+  return (
+    <div className="flex-1 space-y-6 p-4 md:p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <Button variant="ghost" size="sm" asChild className="-ml-2 mb-2">
@@ -40,8 +39,7 @@ export default async function NovoImovelPage() {
           </div>
         </div>
 
-        <ImovelForm />
-      </div>
-    </>
+      <ImovelForm statusList={statusList} />
+    </div>
   );
 }

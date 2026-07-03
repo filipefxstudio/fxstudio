@@ -1,8 +1,8 @@
 import { STATUS_IMOVEL } from "@/lib/constants/imoveis";
 import { cn } from "@/lib/utils";
-import type { StatusImovel } from "@/types";
+import type { StatusImovel, StatusImovelSlug } from "@/types";
 
-const STATUS_COLORS: Record<StatusImovel, string> = {
+const STATUS_COLORS: Record<StatusImovelSlug, string> = {
   disponivel: "#2DC653",
   reservado: "#F18F01",
   vendido: "#1E3A5F",
@@ -10,13 +10,17 @@ const STATUS_COLORS: Record<StatusImovel, string> = {
 };
 
 interface StatusBadgeProps {
-  status: StatusImovel;
+  status: StatusImovelSlug;
+  statusImovel?: StatusImovel | null;
   className?: string;
 }
 
-export function StatusBadge({ status, className }: StatusBadgeProps) {
-  const label = STATUS_IMOVEL.find((item) => item.value === status)?.label ?? status;
-  const color = STATUS_COLORS[status];
+export function StatusBadge({ status, statusImovel, className }: StatusBadgeProps) {
+  const label =
+    statusImovel?.nome ??
+    STATUS_IMOVEL.find((item) => item.value === status)?.label ??
+    status;
+  const color = statusImovel?.cor ?? STATUS_COLORS[status];
 
   return (
     <span

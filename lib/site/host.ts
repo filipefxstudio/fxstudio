@@ -8,6 +8,7 @@ export const RESERVED_APP_PATHS = new Set([
   "login",
   "cadastro",
   "site-custom",
+  "preview",
   "_next",
 ]);
 

@@ -7,12 +7,14 @@ import { Plus } from "lucide-react";
 import { ImovelCardGrid } from "@/components/imoveis/ImovelCardGrid";
 import { ImovelCardList } from "@/components/imoveis/ImovelCardList";
 import {
+  countActiveFilters,
   defaultImoveisFilters,
   ImoveisFilters,
   type ImoveisFilterState,
 } from "@/components/imoveis/ImoveisFilters";
 import {
   ImoveisToolbar,
+  type ImoveisSortOption,
   type ImoveisViewMode,
 } from "@/components/imoveis/ImoveisToolbar";
 import { Button } from "@/components/ui/button";
@@ -24,26 +26,15 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { getImovelCodigo, getValorNumerico } from "@/lib/imoveis/format";
-import type { Imovel } from "@/types";
+import type { Imovel, StatusImovel } from "@/types";
 
 const VIEW_MODE_STORAGE_KEY = "fxstudio-imoveis-view";
+const SORT_STORAGE_KEY = "fx-imoveis-sort";
 
 interface ImoveisListingProps {
   imoveis: Imovel[];
-}
-
-function countActiveFilters(filters: ImoveisFilterState): number {
-  let count = 0;
-  if (filters.finalidade !== "all") count += 1;
-  if (filters.tipo !== "all") count += 1;
-  if (filters.status !== "all") count += 1;
-  if (filters.valorMin) count += 1;
-  if (filters.valorMax) count += 1;
-  if (filters.bairro) count += 1;
-  if (filters.quartosMin !== "all") count += 1;
-  if (filters.banheirosMin !== "all") count += 1;
-  if (filters.vagasMin !== "all") count += 1;
-  return count;
+  corretorSlug: string;
+  statusList: StatusImovel[];
 }
 
 function matchesMinimo(
@@ -85,7 +76,7 @@ function matchesFilters(imovel: Imovel, filters: ImoveisFilterState): boolean {
     return false;
   }
 
-  if (filters.status !== "all" && imovel.status !== filters.status) {
+  if (filters.statusId !== "all" && imovel.status_imovel_id !== filters.statusId) {
     return false;
   }
 
@@ -121,25 +112,82 @@ function matchesFilters(imovel: Imovel, filters: ImoveisFilterState): boolean {
     return false;
   }
 
+  if (filters.caracteristicas.length > 0) {
+    const diferenciais = imovel.diferenciais ?? [];
+    const hasAll = filters.caracteristicas.every((item) => diferenciais.includes(item));
+    if (!hasAll) {
+      return false;
+    }
+  }
+
   return true;
 }
 
-export function ImoveisListing({ imoveis }: ImoveisListingProps) {
+function getPublicacaoDate(imovel: Imovel): number {
+  const date = imovel.data_ativacao ?? imovel.criado_em;
+  return new Date(date).getTime();
+}
+
+function sortImoveis(imoveis: Imovel[], sort: ImoveisSortOption): Imovel[] {
+  const sorted = [...imoveis];
+
+  sorted.sort((a, b) => {
+    switch (sort) {
+      case "valor_desc":
+        return (getValorNumerico(b) ?? 0) - (getValorNumerico(a) ?? 0);
+      case "valor_asc":
+        return (getValorNumerico(a) ?? 0) - (getValorNumerico(b) ?? 0);
+      case "publicacao_desc":
+        return getPublicacaoDate(b) - getPublicacaoDate(a);
+      case "publicacao_asc":
+        return getPublicacaoDate(a) - getPublicacaoDate(b);
+      case "cadastro_desc":
+        return new Date(b.criado_em).getTime() - new Date(a.criado_em).getTime();
+      case "cadastro_asc":
+        return new Date(a.criado_em).getTime() - new Date(b.criado_em).getTime();
+      case "bairro_asc":
+        return (a.bairro ?? "").localeCompare(b.bairro ?? "", "pt-BR");
+      case "captador_asc":
+        return (a.titulo ?? a.codigo ?? "").localeCompare(b.titulo ?? b.codigo ?? "", "pt-BR");
+      case "area_desc":
+        return (b.area_util ?? 0) - (a.area_util ?? 0);
+      case "area_asc":
+        return (a.area_util ?? 0) - (b.area_util ?? 0);
+      default:
+        return 0;
+    }
+  });
+
+  return sorted;
+}
+
+export function ImoveisListing({ imoveis, corretorSlug, statusList }: ImoveisListingProps) {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<ImoveisFilterState>(defaultImoveisFilters);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ImoveisViewMode>("grid");
+  const [sort, setSort] = useState<ImoveisSortOption>("cadastro_desc");
 
   useEffect(() => {
-    const stored = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
-    if (stored === "grid" || stored === "list") {
-      setViewMode(stored);
+    const storedView = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+    if (storedView === "grid" || storedView === "list") {
+      setViewMode(storedView);
+    }
+
+    const storedSort = localStorage.getItem(SORT_STORAGE_KEY) as ImoveisSortOption | null;
+    if (storedSort) {
+      setSort(storedSort);
     }
   }, []);
 
   function handleViewModeChange(mode: ImoveisViewMode) {
     setViewMode(mode);
     localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
+  }
+
+  function handleSortChange(nextSort: ImoveisSortOption) {
+    setSort(nextSort);
+    localStorage.setItem(SORT_STORAGE_KEY, nextSort);
   }
 
   const bairros = useMemo(() => {
@@ -154,10 +202,13 @@ export function ImoveisListing({ imoveis }: ImoveisListingProps) {
 
   const filteredImoveis = useMemo(
     () =>
-      imoveis.filter(
-        (imovel) => matchesSearch(imovel, search) && matchesFilters(imovel, filters),
+      sortImoveis(
+        imoveis.filter(
+          (imovel) => matchesSearch(imovel, search) && matchesFilters(imovel, filters),
+        ),
+        sort,
       ),
-    [imoveis, search, filters],
+    [imoveis, search, filters, sort],
   );
 
   const activeFilterCount = countActiveFilters(filters);
@@ -204,20 +255,23 @@ export function ImoveisListing({ imoveis }: ImoveisListingProps) {
       <ImoveisToolbar
         search={search}
         onSearchChange={setSearch}
-        filtersOpen={filtersOpen}
-        onToggleFilters={() => setFiltersOpen((open) => !open)}
         activeFilterCount={activeFilterCount}
+        filtersOpen={filtersOpen}
+        onFiltersToggle={() => setFiltersOpen((open) => !open)}
         viewMode={viewMode}
         onViewModeChange={handleViewModeChange}
+        sort={sort}
+        onSortChange={handleSortChange}
       />
 
-      <ImoveisFilters
-        open={filtersOpen}
-        filters={filters}
-        onChange={setFilters}
-        onClose={() => setFiltersOpen(false)}
-        bairros={bairros}
-      />
+      {filtersOpen ? (
+        <ImoveisFilters
+          filters={filters}
+          onChange={setFilters}
+          bairros={bairros}
+          statusList={statusList}
+        />
+      ) : null}
 
       {filteredImoveis.length === 0 ? (
         <Card>
@@ -228,9 +282,17 @@ export function ImoveisListing({ imoveis }: ImoveisListingProps) {
           </CardContent>
         </Card>
       ) : viewMode === "grid" ? (
-        <ImovelCardGrid imoveis={filteredImoveis} />
+        <ImovelCardGrid
+          imoveis={filteredImoveis}
+          corretorSlug={corretorSlug}
+          statusList={statusList}
+        />
       ) : (
-        <ImovelCardList imoveis={filteredImoveis} />
+        <ImovelCardList
+          imoveis={filteredImoveis}
+          corretorSlug={corretorSlug}
+          statusList={statusList}
+        />
       )}
     </div>
   );

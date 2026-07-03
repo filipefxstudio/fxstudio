@@ -38,7 +38,10 @@ export function ImovelCardPublico({ imovel }: ImovelCardPublicoProps) {
               Sem foto
             </div>
           )}
-          <span className="absolute left-3 top-3 rounded-full bg-accent px-2.5 py-1 text-xs font-semibold text-white">
+          <span
+            className="absolute left-3 top-3 rounded-full px-2.5 py-1 text-xs font-semibold text-white"
+            style={{ backgroundColor: "var(--color-secondary)" }}
+          >
             {getFinalidadeLabel(imovel.finalidade)}
           </span>
         </div>

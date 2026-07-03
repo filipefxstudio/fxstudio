@@ -1,18 +1,31 @@
 "use server";
 
-import { DIAS_LEAD_NOVO } from "@/lib/constants/config";
+import { getAgendaHoje, getVisitasProximas24h } from "@/lib/actions/agenda";
+import { getDashboardConfig } from "@/lib/actions/dashboard-config";
+import {
+  buildSparklineBuckets,
+  calcChangePercent,
+  isDateInRange,
+  resolvePeriodRange,
+  type DashboardPeriodPreset,
+} from "@/lib/dashboard/period";
 import { formatOrigemDisplay, getUltimaAtividadeEm, isLeadAtivo } from "@/lib/leads/format";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 import { createClient } from "@/lib/supabase/server";
-import type { EtapaLead, FinalidadeImovel, Lead, StatusImovel, TemperaturaLead } from "@/types";
+import type { DashboardConfig, EtapaLead, FinalidadeImovel, Imovel, Lead, Negocio } from "@/types";
 
 export type DashboardTab = "venda" | "locacao";
+
+export type DashboardKPIFormat = "number" | "currency" | "duration";
 
 export interface DashboardKPIItem {
   id: string;
   label: string;
   value: number;
-  icon: "leads" | "novos" | "quentes" | "mornos" | "frios";
+  previousValue: number;
+  changePercent: number | null;
+  sparkline: number[];
+  format: DashboardKPIFormat;
   href?: string;
 }
 
@@ -23,10 +36,18 @@ export interface DashboardFunilItem {
   href: string;
 }
 
+export interface DashboardChartSlice {
+  label: string;
+  value: number;
+  color: string;
+  href?: string;
+}
+
 export interface DashboardBarItem {
   label: string;
   count: number;
   color: string;
+  href?: string;
 }
 
 export interface DashboardAlertaItem {
@@ -37,25 +58,57 @@ export interface DashboardAlertaItem {
   tipo: "warning" | "info" | "danger";
 }
 
-export interface DashboardLeadRecenteItem {
-  id: string;
-  nome: string;
-  origem: string;
-  tempoAtras: string;
-  temperatura: TemperaturaLead;
-  interesseImovel: string;
-  atendido_por: Lead["atendido_por"];
-}
-
-export interface DashboardStats {
+export interface DashboardData {
   kpis: DashboardKPIItem[];
   funil: DashboardFunilItem[];
-  imoveisPorStatus: DashboardBarItem[];
-  origemLeads: DashboardBarItem[];
+  temperatura: DashboardChartSlice[];
+  qualidade: DashboardChartSlice[];
+  tempoInteracao: DashboardChartSlice[];
+  origem: DashboardBarItem[];
+  captacoes: DashboardChartSlice[];
+  imoveisDesatualizados: DashboardChartSlice[];
   alertas: DashboardAlertaItem[];
-  leadsRecentes: DashboardLeadRecenteItem[];
-  leadsSemInteracao: number;
 }
+
+export interface GetDashboardDataParams {
+  periodPreset: DashboardPeriodPreset;
+  customStart?: string;
+  customEnd?: string;
+  tab: DashboardTab;
+}
+
+interface PeriodMetrics {
+  leadsAtivos: number;
+  leadsNovos: number;
+  imoveisAtivos: number;
+  tempoMedioPrimeiroContatoMs: number;
+  comissaoPrevista: number;
+  comissaoRecebida: number;
+  sparklineLeadsAtivos: string[];
+  sparklineLeadsNovos: string[];
+  sparklineImoveisAtivos: string[];
+  sparklineTempoContato: string[];
+  sparklineComissaoPrevista: string[];
+  sparklineComissaoRecebida: string[];
+}
+
+type LeadRow = Lead & { imovel?: { titulo?: string | null } | null };
+type ImovelRow = Pick<
+  Imovel,
+  | "id"
+  | "status"
+  | "finalidade"
+  | "data_ativacao"
+  | "data_desativacao"
+  | "data_ultima_atualizacao"
+  | "criado_em"
+  | "local_chaves"
+>;
+type InteracaoRow = { lead_id: string; criado_em: string };
+type NegocioRow = Pick<
+  Negocio,
+  "valor_comissao" | "data_prevista_comissao" | "data_recebimento_comissao" | "status" | "lead_id"
+> & { lead?: { finalidade_busca?: string | null } | null };
 
 function finalidadeLeadFromTab(tab: DashboardTab): "compra" | "locacao" {
   return tab === "venda" ? "compra" : "locacao";
@@ -65,293 +118,690 @@ function finalidadeImovelFromTab(tab: DashboardTab): FinalidadeImovel {
   return tab === "venda" ? "venda" : "locacao";
 }
 
-function formatTempoAtras(isoDate: string): string {
-  const diffMs = Date.now() - new Date(isoDate).getTime();
-  const minutos = Math.floor(diffMs / 60000);
-
-  if (minutos < 1) return "agora";
-  if (minutos < 60) return `há ${minutos} min`;
-
-  const horas = Math.floor(minutos / 60);
-  if (horas < 24) return `há ${horas} h`;
-
-  const dias = Math.floor(horas / 24);
-  return `há ${dias} dia${dias === 1 ? "" : "s"}`;
+function isImovelDisponivel(imovel: ImovelRow): boolean {
+  return imovel.status === "disponivel";
 }
 
-function isLeadNovo(lead: Lead): boolean {
-  if (lead.etapa !== "novo") return false;
-  const limite = new Date();
-  limite.setDate(limite.getDate() - DIAS_LEAD_NOVO);
-  return new Date(lead.criado_em) >= limite;
+function getImovelReferenciaAtualizacao(imovel: ImovelRow): string {
+  return imovel.data_ultima_atualizacao ?? imovel.criado_em;
 }
 
-function isSemInteracao(lead: Lead, dias: number): boolean {
-  if (!isLeadAtivo(lead)) return false;
-  const limite = new Date();
-  limite.setDate(limite.getDate() - dias);
-  return new Date(getUltimaAtividadeEm(lead)) < limite;
+function daysSince(isoDate: string, reference: Date = new Date()): number {
+  const diffMs = reference.getTime() - new Date(isoDate).getTime();
+  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
 }
 
-function getInteresseResumido(lead: Lead): string {
-  if (lead.imovel?.titulo) return lead.imovel.titulo;
+function getUltimaInteracaoLead(
+  lead: LeadRow,
+  interacoesPorLead: Map<string, string>,
+): string {
+  const ultimaInteracao = interacoesPorLead.get(lead.id);
+  if (ultimaInteracao) return ultimaInteracao;
+  return getUltimaAtividadeEm(lead);
+}
 
-  const partes: string[] = [];
-  if (lead.tipo_imovel_busca) partes.push(lead.tipo_imovel_busca);
-  if (lead.bairros_interesse?.length) {
-    partes.push(lead.bairros_interesse.slice(0, 2).join(", "));
+function computePeriodMetrics(
+  leads: LeadRow[],
+  imoveis: ImovelRow[],
+  interacoesPorLead: Map<string, { first: string; last: string }>,
+  negocios: NegocioRow[],
+  finalidadeLead: "compra" | "locacao",
+  start: Date,
+  end: Date,
+): PeriodMetrics {
+  const leadsFiltered = leads.filter((l) => l.finalidade_busca === finalidadeLead);
+  const imoveisFiltered = imoveis.filter((i) =>
+    finalidadeLead === "compra" ? i.finalidade === "venda" : i.finalidade === "locacao",
+  );
+
+  const leadsAtivosList = leadsFiltered.filter(isLeadAtivo);
+  const leadsNovosList = leadsFiltered.filter((l) => isDateInRange(l.criado_em, start, end));
+  const imoveisAtivosList = imoveisFiltered.filter(isImovelDisponivel);
+
+  const temposContato: number[] = [];
+  const sparklineTempoContato: string[] = [];
+
+  for (const lead of leadsFiltered) {
+    if (!isDateInRange(lead.criado_em, start, end)) continue;
+    const interacao = interacoesPorLead.get(lead.id);
+    if (!interacao) continue;
+    const diffMs = new Date(interacao.first).getTime() - new Date(lead.criado_em).getTime();
+    if (diffMs >= 0) {
+      temposContato.push(diffMs);
+      sparklineTempoContato.push(interacao.first);
+    }
   }
-  return partes.length > 0 ? partes.join(" · ") : "Interesse não informado";
-}
 
-export async function getDashboardStats(
-  tab: DashboardTab,
-  diasAlertaInatividade = 7,
-): Promise<DashboardStats | null> {
-  const corretor = await getCorretorForUser();
+  const tempoMedioPrimeiroContatoMs =
+    temposContato.length > 0
+      ? temposContato.reduce((sum, value) => sum + value, 0) / temposContato.length
+      : 0;
 
-  if (!corretor) {
-    return null;
+  let comissaoPrevista = 0;
+  let comissaoRecebida = 0;
+  const sparklineComissaoPrevista: string[] = [];
+  const sparklineComissaoRecebida: string[] = [];
+
+  for (const negocio of negocios) {
+    if (negocio.status !== "fechado") continue;
+    const valor = negocio.valor_comissao ?? 0;
+
+    if (
+      negocio.data_prevista_comissao &&
+      !negocio.data_recebimento_comissao &&
+      isDateInRange(negocio.data_prevista_comissao, start, end)
+    ) {
+      comissaoPrevista += valor;
+      sparklineComissaoPrevista.push(negocio.data_prevista_comissao);
+    }
+
+    if (
+      negocio.data_recebimento_comissao &&
+      isDateInRange(negocio.data_recebimento_comissao, start, end)
+    ) {
+      comissaoRecebida += valor;
+      sparklineComissaoRecebida.push(negocio.data_recebimento_comissao);
+    }
   }
 
-  const supabase = await createClient();
-  const finalidadeLead = finalidadeLeadFromTab(tab);
-  const finalidadeImovel = finalidadeImovelFromTab(tab);
+  return {
+    leadsAtivos: leadsAtivosList.length,
+    leadsNovos: leadsNovosList.length,
+    imoveisAtivos: imoveisAtivosList.length,
+    tempoMedioPrimeiroContatoMs,
+    comissaoPrevista,
+    comissaoRecebida,
+    sparklineLeadsAtivos: leadsAtivosList.map((l) => getUltimaAtividadeEm(l)),
+    sparklineLeadsNovos: leadsNovosList.map((l) => l.criado_em),
+    sparklineImoveisAtivos: imoveisAtivosList.map((i) => getImovelReferenciaAtualizacao(i)),
+    sparklineTempoContato,
+    sparklineComissaoPrevista,
+    sparklineComissaoRecebida,
+  };
+}
 
-  const [leadsResult, imoveisResult, interacoesResult, fotosResult] = await Promise.all([
-    supabase
-      .from("leads")
-      .select("*, imovel:imoveis(titulo)")
-      .eq("corretor_id", corretor.id)
-      .eq("finalidade_busca", finalidadeLead),
-    supabase
-      .from("imoveis")
-      .select("id, status, local_chaves")
-      .eq("corretor_id", corretor.id)
-      .eq("finalidade", finalidadeImovel),
-    supabase
-      .from("lead_interacoes")
-      .select("lead_id, tipo")
-      .eq("corretor_id", corretor.id),
-    supabase.from("imovel_fotos").select("imovel_id"),
-  ]);
+function buildKpis(
+  current: PeriodMetrics,
+  previous: PeriodMetrics,
+  periodStart: Date,
+  periodEnd: Date,
+  finalidadeLead: "compra" | "locacao",
+): DashboardKPIItem[] {
+  const baseHref = `/dashboard/atendimentos?finalidade=${finalidadeLead}`;
 
-  const leads = (leadsResult.data ?? []) as Lead[];
-  const imoveis = imoveisResult.data ?? [];
-  const interacoes = interacoesResult.data ?? [];
-  const fotos = fotosResult.data ?? [];
-
-  const leadIdsComVisita = new Set(
-    interacoes.filter((i) => i.tipo === "visita").map((i) => i.lead_id),
-  );
-  const leadIdsComProposta = new Set(
-    interacoes.filter((i) => i.tipo === "proposta").map((i) => i.lead_id),
-  );
-
-  const leadsAtivos = leads.filter(isLeadAtivo);
-  const leadsNovos = leadsAtivos.filter(isLeadNovo);
-  const quentes = leadsAtivos.filter((l) => l.temperatura === "quente");
-  const mornos = leadsAtivos.filter((l) => l.temperatura === "morno");
-  const frios = leadsAtivos.filter((l) => l.temperatura === "frio");
-  const semInteracao = leadsAtivos.filter((l) =>
-    isSemInteracao(l, diasAlertaInatividade),
-  );
-
-  const kpis: DashboardKPIItem[] = [
+  return [
     {
-      id: "ativos",
+      id: "leads-ativos",
       label: "Leads ativos",
-      value: leadsAtivos.length,
-      icon: "leads",
-      href: `/dashboard/leads?finalidade=${finalidadeLead}`,
+      value: current.leadsAtivos,
+      previousValue: previous.leadsAtivos,
+      changePercent: calcChangePercent(current.leadsAtivos, previous.leadsAtivos),
+      sparkline: buildSparklineBuckets(current.sparklineLeadsAtivos, periodStart, periodEnd),
+      format: "number",
+      href: baseHref,
     },
     {
-      id: "novos",
+      id: "leads-novos",
       label: "Leads novos",
-      value: leadsNovos.length,
-      icon: "novos",
-      href: `/dashboard/leads?etapa=novo&finalidade=${finalidadeLead}`,
+      value: current.leadsNovos,
+      previousValue: previous.leadsNovos,
+      changePercent: calcChangePercent(current.leadsNovos, previous.leadsNovos),
+      sparkline: buildSparklineBuckets(current.sparklineLeadsNovos, periodStart, periodEnd),
+      format: "number",
+      href: `${baseHref}&etapa=novo`,
     },
     {
-      id: "quentes",
-      label: "Quentes",
-      value: quentes.length,
-      icon: "quentes",
-      href: `/dashboard/leads?temperatura=quente&finalidade=${finalidadeLead}`,
+      id: "imoveis-ativos",
+      label: "Imóveis ativos",
+      value: current.imoveisAtivos,
+      previousValue: previous.imoveisAtivos,
+      changePercent: calcChangePercent(current.imoveisAtivos, previous.imoveisAtivos),
+      sparkline: buildSparklineBuckets(current.sparklineImoveisAtivos, periodStart, periodEnd),
+      format: "number",
+      href: "/dashboard/imoveis",
     },
     {
-      id: "mornos",
-      label: "Mornos",
-      value: mornos.length,
-      icon: "mornos",
-      href: `/dashboard/leads?temperatura=morno&finalidade=${finalidadeLead}`,
+      id: "tempo-primeiro-contato",
+      label: "Tempo médio 1º contato",
+      value: current.tempoMedioPrimeiroContatoMs,
+      previousValue: previous.tempoMedioPrimeiroContatoMs,
+      changePercent: calcChangePercent(
+        current.tempoMedioPrimeiroContatoMs,
+        previous.tempoMedioPrimeiroContatoMs,
+      ),
+      sparkline: buildSparklineBuckets(current.sparklineTempoContato, periodStart, periodEnd),
+      format: "duration",
+      href: baseHref,
     },
     {
-      id: "frios",
-      label: "Frios",
-      value: frios.length,
-      icon: "frios",
-      href: `/dashboard/leads?temperatura=frio&finalidade=${finalidadeLead}`,
+      id: "comissao-prevista",
+      label: "Comissão prevista",
+      value: current.comissaoPrevista,
+      previousValue: previous.comissaoPrevista,
+      changePercent: calcChangePercent(current.comissaoPrevista, previous.comissaoPrevista),
+      sparkline: buildSparklineBuckets(
+        current.sparklineComissaoPrevista,
+        periodStart,
+        periodEnd,
+      ),
+      format: "currency",
+    },
+    {
+      id: "comissao-recebida",
+      label: "Comissão recebida",
+      value: current.comissaoRecebida,
+      previousValue: previous.comissaoRecebida,
+      changePercent: calcChangePercent(current.comissaoRecebida, previous.comissaoRecebida),
+      sparkline: buildSparklineBuckets(
+        current.sparklineComissaoRecebida,
+        periodStart,
+        periodEnd,
+      ),
+      format: "currency",
     },
   ];
+}
 
-  const atendimento = leadsAtivos.filter((l) =>
-    (["contato_feito", "qualificado"] as EtapaLead[]).includes(l.etapa),
-  );
-  const visitas = leadsAtivos.filter((l) => leadIdsComVisita.has(l.id));
-  const negociacao = leadsAtivos.filter(
-    (l) =>
-      leadIdsComProposta.has(l.id) ||
-      l.etapa === "proposta" ||
-      l.etapa === "negociacao",
-  );
-  const vendas = leads.filter((l) => l.etapa === "fechado");
+function buildFunil(
+  leads: LeadRow[],
+  finalidadeLead: "compra" | "locacao",
+  tab: DashboardTab,
+): DashboardFunilItem[] {
+  const filtered = leads.filter((l) => l.finalidade_busca === finalidadeLead);
+  const base = `/dashboard/atendimentos?finalidade=${finalidadeLead}`;
 
-  const funil: DashboardFunilItem[] = [
+  const etapaCount = (etapas: EtapaLead[]) =>
+    filtered.filter((l) => etapas.includes(l.etapa)).length;
+
+  return [
     {
       id: "leads",
       label: "Leads",
-      count: leadsAtivos.length,
-      href: `/dashboard/leads?finalidade=${finalidadeLead}`,
+      count: filtered.filter(isLeadAtivo).length,
+      href: base,
     },
     {
-      id: "atendimento",
-      label: "Atendimento",
-      count: atendimento.length,
-      href: `/dashboard/leads?etapa=contato_feito&finalidade=${finalidadeLead}`,
+      id: "contato",
+      label: "Contato",
+      count: etapaCount(["contato_feito"]),
+      href: `${base}&etapa=contato_feito`,
     },
     {
-      id: "visitas",
-      label: "Visitas",
-      count: visitas.length,
-      href: `/dashboard/leads?finalidade=${finalidadeLead}`,
+      id: "qualificado",
+      label: "Qualificado",
+      count: etapaCount(["qualificado"]),
+      href: `${base}&etapa=qualificado`,
     },
     {
-      id: "negociacao",
-      label: "Negociação",
-      count: negociacao.length,
-      href: `/dashboard/leads?etapa=proposta&finalidade=${finalidadeLead}`,
+      id: "visita",
+      label: "Visita",
+      count: etapaCount(["visita_agendada"]),
+      href: `${base}&etapa=visita_agendada`,
     },
     {
-      id: "vendas",
-      label: tab === "venda" ? "Vendas" : "Locações",
-      count: vendas.length,
-      href: `/dashboard/leads?etapa=fechado&finalidade=${finalidadeLead}`,
+      id: "proposta",
+      label: "Proposta",
+      count: etapaCount(["proposta", "negociacao"]),
+      href: `${base}&etapa=proposta`,
+    },
+    {
+      id: "venda",
+      label: tab === "venda" ? "Venda" : "Locação",
+      count: etapaCount(["fechado"]),
+      href: `${base}&etapa=fechado`,
+    },
+    {
+      id: "perdido",
+      label: "Perdido",
+      count: etapaCount(["perdido"]),
+      href: `${base}&etapa=perdido`,
     },
   ];
+}
 
-  const statusGroups: { key: StatusImovel | "vendido_locado"; label: string; color: string }[] =
-    tab === "venda"
-      ? [
-          { key: "disponivel", label: "Disponível", color: "#2E86AB" },
-          { key: "reservado", label: "Reservado", color: "#F18F01" },
-          { key: "vendido", label: "Vendido", color: "#2DC653" },
-        ]
-      : [
-          { key: "disponivel", label: "Disponível", color: "#2E86AB" },
-          { key: "reservado", label: "Reservado", color: "#F18F01" },
-          { key: "locado", label: "Locado", color: "#2DC653" },
-        ];
+function buildTemperatura(
+  leads: LeadRow[],
+  finalidadeLead: "compra" | "locacao",
+): DashboardChartSlice[] {
+  const ativos = leads.filter(
+    (l) => l.finalidade_busca === finalidadeLead && isLeadAtivo(l),
+  );
+  const base = `/dashboard/atendimentos?finalidade=${finalidadeLead}`;
 
-  const imoveisPorStatus: DashboardBarItem[] = statusGroups.map((group) => ({
-    label: group.label,
-    count: imoveis.filter((i) => i.status === group.key).length,
-    color: group.color,
-  }));
+  const count = (temp: string) => ativos.filter((l) => l.temperatura === temp).length;
+
+  return [
+    { label: "Quente", value: count("quente"), color: "#E63946", href: `${base}&temperatura=quente` },
+    { label: "Morno", value: count("morno"), color: "#F18F01", href: `${base}&temperatura=morno` },
+    { label: "Frio", value: count("frio"), color: "#2E86AB", href: `${base}&temperatura=frio` },
+    {
+      label: "Indefinido",
+      value: ativos.filter((l) => !l.temperatura).length,
+      color: "#9CA3AF",
+      href: base,
+    },
+  ];
+}
+
+function buildQualidade(
+  leads: LeadRow[],
+  finalidadeLead: "compra" | "locacao",
+): DashboardChartSlice[] {
+  const filtered = leads.filter((l) => l.finalidade_busca === finalidadeLead);
+  const base = `/dashboard/atendimentos?finalidade=${finalidadeLead}`;
+
+  const qualificadosEtapas: EtapaLead[] = [
+    "qualificado",
+    "visita_agendada",
+    "proposta",
+    "negociacao",
+    "fechado",
+  ];
+
+  const qualificados = filtered.filter((l) => qualificadosEtapas.includes(l.etapa)).length;
+  const descartados = filtered.filter((l) => l.etapa === "perdido").length;
+  const emAtendimento = filtered.filter(
+    (l) => l.etapa !== "perdido" && !qualificadosEtapas.includes(l.etapa),
+  ).length;
+
+  return [
+    {
+      label: "Qualificados",
+      value: qualificados,
+      color: "#2DC653",
+      href: `${base}&etapa=qualificado`,
+    },
+    {
+      label: "Descartados",
+      value: descartados,
+      color: "#E63946",
+      href: `${base}&etapa=perdido`,
+    },
+    {
+      label: "Em atendimento",
+      value: emAtendimento,
+      color: "#2E86AB",
+      href: base,
+    },
+  ];
+}
+
+function buildTempoInteracao(
+  leads: LeadRow[],
+  interacoesPorLead: Map<string, { first: string; last: string }>,
+  config: DashboardConfig,
+  finalidadeLead: "compra" | "locacao",
+): DashboardChartSlice[] {
+  const ativos = leads.filter(
+    (l) => l.finalidade_busca === finalidadeLead && isLeadAtivo(l),
+  );
+  const base = `/dashboard/atendimentos?finalidade=${finalidadeLead}`;
+  const now = new Date();
+  const lastByLead = new Map(
+    Array.from(interacoesPorLead.entries()).map(([id, v]) => [id, v.last]),
+  );
+
+  let verde = 0;
+  let amarelo = 0;
+  let vermelho = 0;
+
+  for (const lead of ativos) {
+    const ultima = getUltimaInteracaoLead(lead, lastByLead);
+    const dias = daysSince(ultima, now);
+
+    if (dias <= config.leads_verde_dias) verde += 1;
+    else if (dias <= config.leads_amarelo_dias) amarelo += 1;
+    else vermelho += 1;
+  }
+
+  return [
+    {
+      label: `Até ${config.leads_verde_dias} dias`,
+      value: verde,
+      color: "#2DC653",
+      href: base,
+    },
+    {
+      label: `${config.leads_verde_dias + 1}–${config.leads_amarelo_dias} dias`,
+      value: amarelo,
+      color: "#F18F01",
+      href: `${base}&sem_interacao=${config.leads_verde_dias}`,
+    },
+    {
+      label: `+${config.leads_amarelo_dias} dias`,
+      value: vermelho,
+      color: "#E63946",
+      href: `${base}&sem_interacao=${config.leads_amarelo_dias}`,
+    },
+  ];
+}
+
+function buildOrigem(
+  leads: LeadRow[],
+  finalidadeLead: "compra" | "locacao",
+  start: Date,
+  end: Date,
+): DashboardBarItem[] {
+  const ativos = leads.filter(
+    (l) =>
+      l.finalidade_busca === finalidadeLead &&
+      isLeadAtivo(l) &&
+      isDateInRange(l.criado_em, start, end),
+  );
 
   const origemMap = new Map<string, number>();
-  for (const lead of leadsAtivos) {
+  for (const lead of ativos) {
     const origem = formatOrigemDisplay(lead.origem);
     origemMap.set(origem, (origemMap.get(origem) ?? 0) + 1);
   }
 
-  const origemLeads: DashboardBarItem[] = Array.from(origemMap.entries())
+  const colors = ["#1D3557", "#2E86AB", "#F18F01", "#E63946", "#2DC653", "#6C757D", "#457B9D", "#A8DADC"];
+  const base = `/dashboard/atendimentos?finalidade=${finalidadeLead}`;
+
+  return Array.from(origemMap.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
     .map(([label, count], index) => ({
       label,
       count,
-      color: ["#1D3557", "#2E86AB", "#F18F01", "#E63946", "#2DC653", "#6C757D", "#457B9D", "#A8DADC"][
-        index % 8
-      ],
+      color: colors[index % colors.length],
+      href: base,
     }));
+}
 
-  const imovelIdsComFoto = new Set(fotos.map((f) => f.imovel_id));
-  const imoveisSemFoto = imoveis.filter((i) => !imovelIdsComFoto.has(i.id)).length;
-  const imoveisSemChaves = imoveis.filter((i) => !i.local_chaves).length;
-  const leadsFriosCount = frios.length;
+function buildCaptacoes(
+  imoveis: ImovelRow[],
+  finalidadeImovel: FinalidadeImovel,
+  start: Date,
+  end: Date,
+): DashboardChartSlice[] {
+  const filtered = imoveis.filter((i) => i.finalidade === finalidadeImovel);
 
-  const alertas: DashboardAlertaItem[] = [];
+  const ativados = filtered.filter(
+    (i) => i.data_ativacao && isDateInRange(i.data_ativacao, start, end),
+  ).length;
 
-  if (semInteracao.length > 0) {
-    alertas.push({
-      id: "sem-interacao",
-      mensagem: `${semInteracao.length} lead${semInteracao.length === 1 ? "" : "s"} sem interação há +${diasAlertaInatividade} dias`,
-      acaoLabel: "Ver leads",
-      href: `/dashboard/leads?sem_interacao=${diasAlertaInatividade}&finalidade=${finalidadeLead}`,
-      tipo: "warning",
-    });
+  const desativados = filtered.filter(
+    (i) => i.data_desativacao && isDateInRange(i.data_desativacao, start, end),
+  ).length;
+
+  return [
+    { label: "Ativados", value: ativados, color: "#2DC653" },
+    { label: "Desativados", value: desativados, color: "#E63946" },
+  ];
+}
+
+function buildImoveisDesatualizados(
+  imoveis: ImovelRow[],
+  finalidadeImovel: FinalidadeImovel,
+  config: DashboardConfig,
+): DashboardChartSlice[] {
+  const disponiveis = imoveis.filter(
+    (i) => i.finalidade === finalidadeImovel && isImovelDisponivel(i),
+  );
+  const now = new Date();
+
+  let verde = 0;
+  let amarelo = 0;
+  let vermelho = 0;
+
+  for (const imovel of disponiveis) {
+    const referencia = getImovelReferenciaAtualizacao(imovel);
+    const dias = daysSince(referencia, now);
+
+    if (dias <= config.imoveis_verde_dias) verde += 1;
+    else if (dias <= config.imoveis_amarelo_dias) amarelo += 1;
+    else vermelho += 1;
   }
 
-  if (leadsFriosCount > 0) {
+  return [
+    {
+      label: `Até ${config.imoveis_verde_dias} dias`,
+      value: verde,
+      color: "#2DC653",
+      href: "/dashboard/imoveis",
+    },
+    {
+      label: `${config.imoveis_verde_dias + 1}–${config.imoveis_amarelo_dias} dias`,
+      value: amarelo,
+      color: "#F18F01",
+      href: "/dashboard/imoveis",
+    },
+    {
+      label: `+${config.imoveis_amarelo_dias} dias`,
+      value: vermelho,
+      color: "#E63946",
+      href: "/dashboard/imoveis",
+    },
+  ];
+}
+
+function buildAlertas(
+  leads: LeadRow[],
+  imoveis: ImovelRow[],
+  imovelIdsComFoto: Set<string>,
+  config: DashboardConfig,
+  finalidadeLead: "compra" | "locacao",
+  finalidadeImovel: FinalidadeImovel,
+  interacoesPorLead: Map<string, { first: string; last: string }>,
+  agendaHojeCount: number,
+  visitas24hCount: number,
+): DashboardAlertaItem[] {
+  const alertas: DashboardAlertaItem[] = [];
+  const base = `/dashboard/atendimentos?finalidade=${finalidadeLead}`;
+  const lastByLead = new Map(
+    Array.from(interacoesPorLead.entries()).map(([id, v]) => [id, v.last]),
+  );
+
+  if (agendaHojeCount > 0) {
     alertas.push({
-      id: "leads-frios",
-      mensagem: `${leadsFriosCount} lead${leadsFriosCount === 1 ? "" : "s"} frio${leadsFriosCount === 1 ? "" : "s"} no funil`,
-      acaoLabel: "Ver leads frios",
-      href: `/dashboard/leads?temperatura=frio&finalidade=${finalidadeLead}`,
+      id: "agenda-hoje",
+      mensagem: `${agendaHojeCount} atividade${agendaHojeCount === 1 ? "" : "s"} pendente${agendaHojeCount === 1 ? "" : "s"} hoje`,
+      acaoLabel: "Ver agenda",
+      href: "/dashboard/agenda",
       tipo: "info",
     });
   }
 
-  if (imoveisSemFoto > 0) {
+  if (visitas24hCount > 0) {
+    alertas.push({
+      id: "visitas-24h",
+      mensagem: `${visitas24hCount} visita${visitas24hCount === 1 ? "" : "s"} nas próximas 24h`,
+      acaoLabel: "Ver agenda",
+      href: "/dashboard/agenda",
+      tipo: "warning",
+    });
+  }
+
+  const leadsSemContato = leads.filter((l) => {
+    if (l.finalidade_busca !== finalidadeLead || !isLeadAtivo(l)) return false;
+    const ultima = getUltimaInteracaoLead(l, lastByLead);
+    return daysSince(ultima) > config.leads_amarelo_dias;
+  }).length;
+
+  if (leadsSemContato > 0) {
+    alertas.push({
+      id: "leads-sem-contato",
+      mensagem: `${leadsSemContato} lead${leadsSemContato === 1 ? "" : "s"} sem contato há mais de ${config.leads_amarelo_dias} dias`,
+      acaoLabel: "Ver atendimentos",
+      href: `${base}&sem_interacao=${config.leads_amarelo_dias}`,
+      tipo: "warning",
+    });
+  }
+
+  const imoveisFiltrados = imoveis.filter((i) => i.finalidade === finalidadeImovel);
+  const semFoto = imoveisFiltrados.filter((i) => !imovelIdsComFoto.has(i.id)).length;
+
+  if (semFoto > 0) {
     alertas.push({
       id: "sem-foto",
-      mensagem: `${imoveisSemFoto} imóve${imoveisSemFoto === 1 ? "l sem foto" : "is sem foto"}`,
+      mensagem: `${semFoto} imóve${semFoto === 1 ? "l sem foto" : "is sem foto"}`,
       acaoLabel: "Ver imóveis",
       href: "/dashboard/imoveis",
       tipo: "info",
     });
   }
 
-  if (imoveisSemChaves > 0) {
+  const imoveisDesatualizados = imoveisFiltrados.filter((i) => {
+    if (!isImovelDisponivel(i)) return false;
+    return daysSince(getImovelReferenciaAtualizacao(i)) > config.imoveis_amarelo_dias;
+  }).length;
+
+  if (imoveisDesatualizados > 0) {
     alertas.push({
-      id: "sem-chaves",
-      mensagem: `${imoveisSemChaves} imóve${imoveisSemChaves === 1 ? "l sem local das chaves" : "is sem local das chaves"}`,
+      id: "imoveis-desatualizados",
+      mensagem: `${imoveisDesatualizados} imóve${imoveisDesatualizados === 1 ? "l desatualizado" : "is desatualizados"} há +${config.imoveis_amarelo_dias} dias`,
       acaoLabel: "Ver imóveis",
       href: "/dashboard/imoveis",
       tipo: "danger",
     });
   }
 
-  const leadsRecentes: DashboardLeadRecenteItem[] = [...leads]
-    .sort((a, b) => new Date(b.criado_em).getTime() - new Date(a.criado_em).getTime())
-    .slice(0, 5)
-    .map((lead) => ({
-      id: lead.id,
-      nome: lead.nome?.trim() || "Lead sem nome",
-      origem: formatOrigemDisplay(lead.origem),
-      tempoAtras: formatTempoAtras(lead.criado_em),
-      temperatura: lead.temperatura,
-      interesseImovel: getInteresseResumido(lead),
-      atendido_por: lead.atendido_por,
-    }));
+  return alertas;
+}
+
+export async function getDashboardData(
+  params: GetDashboardDataParams,
+): Promise<DashboardData | null> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) return null;
+
+  const { periodPreset, customStart, customEnd, tab } = params;
+  const { start, end, previousStart, previousEnd } = resolvePeriodRange(
+    periodPreset,
+    customStart,
+    customEnd,
+  );
+
+  const finalidadeLead = finalidadeLeadFromTab(tab);
+  const finalidadeImovel = finalidadeImovelFromTab(tab);
+
+  const supabase = await createClient();
+
+  const [
+    config,
+    leadsResult,
+    imoveisResult,
+    interacoesResult,
+    negociosResult,
+    fotosResult,
+    agendaHoje,
+    visitas24h,
+  ] = await Promise.all([
+    getDashboardConfig(),
+    supabase
+      .from("leads")
+      .select("*, imovel:imoveis(titulo)")
+      .eq("corretor_id", corretor.id),
+    supabase
+      .from("imoveis")
+      .select(
+        "id, status, finalidade, data_ativacao, data_desativacao, data_ultima_atualizacao, criado_em, local_chaves",
+      )
+      .eq("corretor_id", corretor.id),
+    supabase
+      .from("lead_interacoes")
+      .select("lead_id, criado_em")
+      .eq("corretor_id", corretor.id)
+      .order("criado_em", { ascending: true }),
+    supabase
+      .from("negocios")
+      .select(
+        "valor_comissao, data_prevista_comissao, data_recebimento_comissao, status, lead_id, lead:leads(finalidade_busca)",
+      )
+      .eq("corretor_id", corretor.id)
+      .eq("status", "fechado"),
+    supabase.from("imovel_fotos").select("imovel_id"),
+    getAgendaHoje(),
+    getVisitasProximas24h(),
+  ]);
+
+  if (!config) return null;
+
+  const leads = (leadsResult.data ?? []) as LeadRow[];
+  const imoveis = (imoveisResult.data ?? []) as ImovelRow[];
+  const interacoes = (interacoesResult.data ?? []) as InteracaoRow[];
+  const negociosAll = (negociosResult.data ?? []) as NegocioRow[];
+  const negocios = negociosAll.filter(
+    (n) => n.lead?.finalidade_busca === finalidadeLead,
+  );
+  const fotos = fotosResult.data ?? [];
+  const imovelIdsComFoto = new Set(fotos.map((f) => f.imovel_id));
+
+  const interacoesPorLead = new Map<string, { first: string; last: string }>();
+  for (const interacao of interacoes) {
+    const existing = interacoesPorLead.get(interacao.lead_id);
+    if (!existing) {
+      interacoesPorLead.set(interacao.lead_id, {
+        first: interacao.criado_em,
+        last: interacao.criado_em,
+      });
+    } else {
+      existing.last = interacao.criado_em;
+    }
+  }
+
+  const currentMetrics = computePeriodMetrics(
+    leads,
+    imoveis,
+    interacoesPorLead,
+    negocios,
+    finalidadeLead,
+    start,
+    end,
+  );
+
+  const previousMetrics = computePeriodMetrics(
+    leads,
+    imoveis,
+    interacoesPorLead,
+    negocios,
+    finalidadeLead,
+    previousStart,
+    previousEnd,
+  );
 
   return {
-    kpis,
-    funil,
-    imoveisPorStatus,
-    origemLeads,
-    alertas,
-    leadsRecentes,
-    leadsSemInteracao: semInteracao.length,
+    kpis: buildKpis(currentMetrics, previousMetrics, start, end, finalidadeLead),
+    funil: buildFunil(leads, finalidadeLead, tab),
+    temperatura: buildTemperatura(leads, finalidadeLead),
+    qualidade: buildQualidade(leads, finalidadeLead),
+    tempoInteracao: buildTempoInteracao(leads, interacoesPorLead, config, finalidadeLead),
+    origem: buildOrigem(leads, finalidadeLead, start, end),
+    captacoes: buildCaptacoes(imoveis, finalidadeImovel, start, end),
+    imoveisDesatualizados: buildImoveisDesatualizados(imoveis, finalidadeImovel, config),
+    alertas: buildAlertas(
+      leads,
+      imoveis,
+      imovelIdsComFoto,
+      config,
+      finalidadeLead,
+      finalidadeImovel,
+      interacoesPorLead,
+      agendaHoje.length,
+      visitas24h.length,
+    ),
   };
 }
 
-export async function getDashboardStatsBothTabs(diasAlertaInatividade = 7) {
+export async function getDashboardDataBothTabs(params: Omit<GetDashboardDataParams, "tab">) {
   const [venda, locacao] = await Promise.all([
-    getDashboardStats("venda", diasAlertaInatividade),
-    getDashboardStats("locacao", diasAlertaInatividade),
+    getDashboardData({ ...params, tab: "venda" }),
+    getDashboardData({ ...params, tab: "locacao" }),
   ]);
 
   return { venda, locacao };
+}
+
+/** @deprecated Use getDashboardData */
+export async function getDashboardStatsBothTabs(_diasAlertaInatividade = 7) {
+  return getDashboardDataBothTabs({ periodPreset: "mes" });
+}
+
+/** @deprecated Use getDashboardData */
+export async function getDashboardStats(
+  tab: DashboardTab,
+  _diasAlertaInatividade = 7,
+): Promise<DashboardData | null> {
+  return getDashboardData({ periodPreset: "mes", tab });
 }

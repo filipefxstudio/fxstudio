@@ -1,4 +1,4 @@
-import type { FinalidadeImovel, StatusImovel, TipoImovel } from "@/types";
+import type { FinalidadeImovel, StatusImovelSlug, TipoImovel } from "@/types";
 
 export const TIPOS_IMOVEL: { value: TipoImovel; label: string }[] = [
   { value: "apartamento", label: "Apartamento" },
@@ -14,7 +14,7 @@ export const FINALIDADES_IMOVEL: { value: FinalidadeImovel; label: string }[] = 
   { value: "locacao", label: "Locação" },
 ];
 
-export const STATUS_IMOVEL: { value: StatusImovel; label: string }[] = [
+export const STATUS_IMOVEL: { value: StatusImovelSlug; label: string }[] = [
   { value: "disponivel", label: "Disponível" },
   { value: "reservado", label: "Reservado" },
   { value: "vendido", label: "Vendido" },
@@ -57,6 +57,23 @@ export const IMOVEL_LIMITS: Record<"basico" | "profissional" | "premium", number
 };
 
 export const STORAGE_BUCKET_IMOVEIS = "imoveis-fotos";
+
+export const STORAGE_BUCKET_MARCA_DAGUA = "marca-dagua-logos";
+
+export const MARCA_DAGUA_POSICOES = [
+  { value: "centro", label: "Centro" },
+  { value: "superior_esquerdo", label: "Superior esquerdo" },
+  { value: "superior_direito", label: "Superior direito" },
+  { value: "inferior_esquerdo", label: "Inferior esquerdo" },
+  { value: "inferior_direito", label: "Inferior direito" },
+] as const;
+
+export const STATUS_NOME_TO_SLUG: Record<string, StatusImovelSlug> = {
+  Disponível: "disponivel",
+  Reservado: "reservado",
+  Vendido: "vendido",
+  Locado: "locado",
+};
 
 export const COMPLEMENTO_TIPOS = [
   { value: "apartamento", label: "Apartamento" },

@@ -3,7 +3,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { ClienteForm } from "@/components/clientes/ClienteForm";
-import { Header } from "@/components/dashboard/Header";
 import { Button } from "@/components/ui/button";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 
@@ -19,14 +18,11 @@ export default async function NovoClientePage() {
   }
 
   return (
-    <>
-      <Header nome={corretor.nome} />
-      <div className="flex-1 space-y-4 p-4 md:p-6">
-        <Button variant="ghost" size="sm" asChild>
-          <Link href="/dashboard/clientes">← Voltar para clientes</Link>
-        </Button>
-        <ClienteForm mode="create" />
-      </div>
-    </>
+    <div className="flex-1 space-y-4 p-4 md:p-6">
+      <Button variant="ghost" size="sm" asChild>
+        <Link href="/dashboard/clientes">← Voltar para clientes</Link>
+      </Button>
+      <ClienteForm mode="create" />
+    </div>
   );
 }

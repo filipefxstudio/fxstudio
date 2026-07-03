@@ -1,8 +1,10 @@
 "use client";
 
-import { X } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -12,11 +14,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  FINALIDADES_IMOVEL,
-  STATUS_IMOVEL,
-  TIPOS_IMOVEL,
-} from "@/lib/constants/imoveis";
+import { CARACTERISTICAS_CHECKLIST } from "@/lib/constants/caracteristicas-checklist";
+import { FINALIDADES_IMOVEL, TIPOS_IMOVEL } from "@/lib/constants/imoveis";
+import { cn } from "@/lib/utils";
 import type { FinalidadeImovel, StatusImovel, TipoImovel } from "@/types";
 
 type MinimoNumericoFilter = "all" | "1" | "2" | "3" | "4";
@@ -24,25 +24,27 @@ type MinimoNumericoFilter = "all" | "1" | "2" | "3" | "4";
 export interface ImoveisFilterState {
   finalidade: FinalidadeImovel | "all";
   tipo: TipoImovel | "all";
-  status: StatusImovel | "all";
+  statusId: string | "all";
   valorMin: string;
   valorMax: string;
   bairro: string;
   quartosMin: MinimoNumericoFilter;
   banheirosMin: MinimoNumericoFilter;
   vagasMin: MinimoNumericoFilter;
+  caracteristicas: string[];
 }
 
 export const defaultImoveisFilters: ImoveisFilterState = {
   finalidade: "all",
   tipo: "all",
-  status: "all",
+  statusId: "all",
   valorMin: "",
   valorMax: "",
   bairro: "",
   quartosMin: "all",
   banheirosMin: "all",
   vagasMin: "all",
+  caracteristicas: [],
 };
 
 const MINIMO_OPCOES: { value: MinimoNumericoFilter; label: string }[] = [
@@ -54,50 +56,61 @@ const MINIMO_OPCOES: { value: MinimoNumericoFilter; label: string }[] = [
 ];
 
 interface ImoveisFiltersProps {
-  open: boolean;
   filters: ImoveisFilterState;
   onChange: (filters: ImoveisFilterState) => void;
-  onClose: () => void;
   bairros: string[];
+  statusList: StatusImovel[];
 }
 
 export function ImoveisFilters({
-  open,
   filters,
   onChange,
-  onClose,
   bairros,
+  statusList,
 }: ImoveisFiltersProps) {
-  if (!open) {
-    return null;
-  }
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   function update<K extends keyof ImoveisFilterState>(key: K, value: ImoveisFilterState[K]) {
     onChange({ ...filters, [key]: value });
   }
 
+  function toggleCaracteristica(item: string, checked: boolean) {
+    const next = checked
+      ? [...filters.caracteristicas, item]
+      : filters.caracteristicas.filter((value) => value !== item);
+    update("caracteristicas", next);
+  }
+
   function handleClear() {
     onChange(defaultImoveisFilters);
+    setAdvancedOpen(false);
   }
 
   const hasActiveFilters =
     filters.finalidade !== "all" ||
     filters.tipo !== "all" ||
-    filters.status !== "all" ||
+    filters.statusId !== "all" ||
     filters.valorMin !== "" ||
     filters.valorMax !== "" ||
     filters.bairro !== "" ||
     filters.quartosMin !== "all" ||
     filters.banheirosMin !== "all" ||
-    filters.vagasMin !== "all";
+    filters.vagasMin !== "all" ||
+    filters.caracteristicas.length > 0;
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+    <div
+      id="imoveis-filters-panel"
+      className="rounded-xl border border-border bg-card p-4 shadow-sm"
+    >
       <div className="mb-4 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-primary">Filtros</h3>
-        <Button type="button" variant="ghost" size="icon-sm" onClick={onClose} aria-label="Fechar filtros">
-          <X className="size-4" />
-        </Button>
+        {hasActiveFilters ? (
+          <Button type="button" variant="ghost" size="sm" onClick={handleClear}>
+            <X className="size-4" data-icon="inline-start" />
+            Limpar filtros
+          </Button>
+        ) : null}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -146,17 +159,17 @@ export function ImoveisFilters({
         <div className="space-y-2">
           <Label>Status</Label>
           <Select
-            value={filters.status}
-            onValueChange={(value) => update("status", value as ImoveisFilterState["status"])}
+            value={filters.statusId}
+            onValueChange={(value) => update("statusId", value)}
           >
             <SelectTrigger>
               <SelectValue placeholder="Todos" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos</SelectItem>
-              {STATUS_IMOVEL.map((item) => (
-                <SelectItem key={item.value} value={item.value}>
-                  {item.label}
+              {statusList.map((status) => (
+                <SelectItem key={status.id} value={status.id}>
+                  {status.nome}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -271,13 +284,59 @@ export function ImoveisFilters({
         </div>
       </div>
 
-      {hasActiveFilters ? (
-        <div className="mt-4 flex justify-end">
-          <Button type="button" variant="ghost" size="sm" onClick={handleClear}>
-            Limpar filtros
-          </Button>
+      <div className="mt-4">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setAdvancedOpen((open) => !open)}
+          className="gap-1"
+        >
+          {advancedOpen ? "Ocultar filtros avançados" : "Exibir mais filtros"}
+          <ChevronDown className={cn("size-4 transition-transform", advancedOpen && "rotate-180")} />
+        </Button>
+      </div>
+
+      {advancedOpen ? (
+        <div className="mt-4 space-y-6 border-t border-border pt-4">
+          {CARACTERISTICAS_CHECKLIST.map((categoria) => (
+            <div key={categoria.id} className="space-y-3">
+              <h4 className="text-sm font-medium text-primary">{categoria.titulo}</h4>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {categoria.itens.map((item) => (
+                  <label
+                    key={item}
+                    className="flex cursor-pointer items-center gap-2 text-sm"
+                  >
+                    <Checkbox
+                      checked={filters.caracteristicas.includes(item)}
+                      onCheckedChange={(checked) =>
+                        toggleCaracteristica(item, checked === true)
+                      }
+                    />
+                    {item}
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       ) : null}
     </div>
   );
+}
+
+export function countActiveFilters(filters: ImoveisFilterState): number {
+  let count = 0;
+  if (filters.finalidade !== "all") count += 1;
+  if (filters.tipo !== "all") count += 1;
+  if (filters.statusId !== "all") count += 1;
+  if (filters.valorMin) count += 1;
+  if (filters.valorMax) count += 1;
+  if (filters.bairro) count += 1;
+  if (filters.quartosMin !== "all") count += 1;
+  if (filters.banheirosMin !== "all") count += 1;
+  if (filters.vagasMin !== "all") count += 1;
+  if (filters.caracteristicas.length > 0) count += filters.caracteristicas.length;
+  return count;
 }

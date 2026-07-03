@@ -18,7 +18,40 @@ export type LocalChaves = "imobiliaria" | "proprietario" | "portaria" | "outros"
 
 export type FinalidadeImovel = "venda" | "locacao";
 
-export type StatusImovel = "disponivel" | "reservado" | "vendido" | "locado";
+export type StatusImovelSlug = "disponivel" | "reservado" | "vendido" | "locado";
+
+export interface StatusImovel {
+  id: string;
+  corretor_id: string;
+  nome: string;
+  cor: string;
+  padrao: boolean;
+  ativo: boolean;
+  ordem: number;
+  criado_em: string;
+}
+
+export interface MarcaDaguaConfig {
+  id: string;
+  corretor_id: string;
+  logo_url: string | null;
+  tamanho_percent: number;
+  opacidade_percent: number;
+  posicao: string;
+  criado_em: string;
+  atualizado_em: string;
+}
+
+export interface DashboardConfig {
+  id: string;
+  corretor_id: string;
+  leads_verde_dias: number;
+  leads_amarelo_dias: number;
+  imoveis_verde_dias: number;
+  imoveis_amarelo_dias: number;
+  criado_em: string;
+  atualizado_em: string;
+}
 
 export type EtapaLead =
   | "novo"
@@ -69,7 +102,18 @@ export interface Corretor {
   slug: string;
   dominio_custom?: string | null;
   foto_url?: string | null;
+  logo_url?: string | null;
+  site_cor_primaria?: string | null;
+  site_cor_secundaria?: string | null;
+  hero_image_url?: string | null;
   sobre?: string | null;
+  sobre_titulo?: string | null;
+  sobre_texto?: string | null;
+  sobre_foto_url?: string | null;
+  contato_email?: string | null;
+  contato_telefone?: string | null;
+  contato_endereco?: string | null;
+  contato_horario?: string | null;
   whatsapp?: string | null;
   zapi_instance_id?: string | null;
   zapi_token?: string | null;
@@ -166,7 +210,12 @@ export interface Imovel {
   slug?: string | null;
   tipo: TipoImovel;
   finalidade: FinalidadeImovel;
-  status: StatusImovel;
+  status: StatusImovelSlug;
+  status_imovel_id?: string | null;
+  status_imovel?: StatusImovel | null;
+  data_ativacao?: string | null;
+  data_desativacao?: string | null;
+  data_ultima_atualizacao?: string | null;
   cep?: string | null;
   logradouro?: string | null;
   numero?: string | null;
@@ -184,6 +233,9 @@ export interface Imovel {
   portal_logradouro?: string | null;
   portal_numero?: string | null;
   portal_bairro?: string | null;
+  portal_cep?: string | null;
+  portal_cidade?: string | null;
+  portal_estado?: string | null;
   local_chaves?: LocalChaves | null;
   chaves_codigo?: string | null;
   chaves_descricao?: string | null;
@@ -212,6 +264,7 @@ export interface Imovel {
   diferenciais?: string[] | null;
   video_url?: string | null;
   publicado_site: boolean;
+  publicado_portais?: boolean;
   cliente_id?: string | null;
   cliente?: Cliente | null;
   fotos?: ImovelFoto[];
@@ -292,4 +345,130 @@ export interface ZApiWebhookBody {
   text?: {
     message?: string;
   };
+}
+
+export type StatusVisita = "agendada" | "realizada" | "cancelada" | "nao_compareceu";
+
+export type ParecerVisita = "positivo" | "neutro" | "negativo";
+
+export type VaiGerarProposta = "sim" | "nao" | "talvez";
+
+export type StatusProposta =
+  | "em_analise"
+  | "aceita"
+  | "recusada"
+  | "cancelada"
+  | "contraproposta";
+
+export type StatusNegocio = "fechado" | "cancelado";
+
+export type FormaPagamentoNegocio =
+  | "avista"
+  | "financiamento"
+  | "consorcio"
+  | "permuta"
+  | "outro";
+
+export type TipoAgenda =
+  | "visita"
+  | "ligacao"
+  | "reuniao"
+  | "tarefa"
+  | "lembrete"
+  | "outro";
+
+export type StatusAgenda = "pendente" | "concluida" | "cancelada";
+
+export interface Visita {
+  id: string;
+  corretor_id: string;
+  lead_id: string;
+  imovel_id?: string | null;
+  perfil_id?: string | null;
+  data_visita: string;
+  status: StatusVisita;
+  parecer?: ParecerVisita | null;
+  vai_gerar_proposta?: VaiGerarProposta | null;
+  observacoes?: string | null;
+  criado_em: string;
+  imovel?: Imovel | null;
+  perfil?: Perfil | null;
+}
+
+export interface Proposta {
+  id: string;
+  corretor_id: string;
+  lead_id: string;
+  imovel_id?: string | null;
+  perfil_id?: string | null;
+  valor_proposto: number;
+  data_proposta: string;
+  status: StatusProposta;
+  observacoes?: string | null;
+  criado_em: string;
+  imovel?: Imovel | null;
+  perfil?: Perfil | null;
+}
+
+export interface Negocio {
+  id: string;
+  corretor_id: string;
+  lead_id: string;
+  imovel_id?: string | null;
+  proposta_id?: string | null;
+  perfil_id?: string | null;
+  valor_fechamento: number;
+  valor_comissao?: number | null;
+  percentual_comissao?: number | null;
+  data_fechamento: string;
+  data_prevista_comissao?: string | null;
+  data_recebimento_comissao?: string | null;
+  forma_pagamento?: FormaPagamentoNegocio | null;
+  status: StatusNegocio;
+  observacoes?: string | null;
+  criado_em: string;
+  imovel?: Imovel | null;
+  proposta?: Proposta | null;
+  perfil?: Perfil | null;
+}
+
+export interface LeadImovelSelecionado {
+  id: string;
+  lead_id: string;
+  imovel_id: string;
+  corretor_id: string;
+  token_compartilhamento: string;
+  criado_em: string;
+  imovel?: Imovel | null;
+}
+
+export interface Agenda {
+  id: string;
+  corretor_id: string;
+  perfil_id?: string | null;
+  lead_id?: string | null;
+  imovel_id?: string | null;
+  visita_id?: string | null;
+  tipo: TipoAgenda;
+  titulo: string;
+  descricao?: string | null;
+  data_atividade: string;
+  status: StatusAgenda;
+  lembrete_email: boolean;
+  lembrete_enviado: boolean;
+  criado_em: string;
+  lead?: Lead | null;
+  imovel?: Imovel | null;
+  perfil?: Perfil | null;
+}
+
+export interface AuditoriaAtendimento {
+  id: string;
+  lead_id: string;
+  corretor_id?: string | null;
+  perfil_id?: string | null;
+  acao: string;
+  detalhes?: Record<string, unknown> | null;
+  criado_em: string;
+  perfil?: Perfil | null;
 }

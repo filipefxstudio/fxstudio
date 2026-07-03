@@ -12,8 +12,7 @@ import {
 } from "react";
 import {
   Building2,
-  ChevronLeft,
-  ChevronRight,
+  Calendar,
   ExternalLink,
   LayoutDashboard,
   Menu,
@@ -24,6 +23,7 @@ import {
   X,
 } from "lucide-react";
 
+import { AppHeader } from "@/components/dashboard/AppHeader";
 import { LogoutButton } from "@/components/auth/logout-button";
 import {
   Tooltip,
@@ -44,7 +44,7 @@ interface SidebarContextValue {
 
 const SidebarContext = createContext<SidebarContextValue | null>(null);
 
-function useSidebarContext() {
+export function useSidebarContext() {
   const context = useContext(SidebarContext);
   if (!context) {
     throw new Error("Sidebar components must be used within DashboardShell");
@@ -54,8 +54,9 @@ function useSidebarContext() {
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard/agenda", label: "Agenda", icon: Calendar },
   { href: "/dashboard/imoveis", label: "Imóveis", icon: Building2 },
-  { href: "/dashboard/leads", label: "Leads", icon: Users },
+  { href: "/dashboard/atendimentos", label: "Atendimentos", icon: Users },
   { href: "/dashboard/clientes", label: "Clientes", icon: User },
   { href: "/dashboard/configuracoes", label: "Configurações", icon: Settings },
 ] as const;
@@ -63,10 +64,11 @@ const navItems = [
 interface DashboardShellProps {
   nome: string;
   slug: string;
+  logoUrl?: string | null;
   children: ReactNode;
 }
 
-export function DashboardShell({ nome, slug, children }: DashboardShellProps) {
+export function DashboardShell({ nome, slug, logoUrl, children }: DashboardShellProps) {
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -89,11 +91,12 @@ export function DashboardShell({ nome, slug, children }: DashboardShellProps) {
     <SidebarContext.Provider value={{ open, setOpen, collapsed, toggleCollapsed }}>
       <TooltipProvider delayDuration={0}>
         <div className="min-h-screen bg-background">
+          <AppHeader nome={nome} slug={slug} logoUrl={logoUrl} />
           <SidebarPanel nome={nome} slug={slug} />
           <div
             className={cn(
-              "flex min-h-screen flex-col transition-[margin] duration-300",
-              collapsed ? "md:ml-16" : "md:ml-60",
+              "flex min-h-screen flex-col pt-10 transition-[margin] duration-200 ease-in-out",
+              collapsed ? "md:ml-[52px]" : "md:ml-60",
             )}
           >
             <main className="flex-1 overflow-y-auto">{children}</main>
@@ -101,21 +104,6 @@ export function DashboardShell({ nome, slug, children }: DashboardShellProps) {
         </div>
       </TooltipProvider>
     </SidebarContext.Provider>
-  );
-}
-
-export function SidebarTrigger() {
-  const { setOpen } = useSidebarContext();
-
-  return (
-    <button
-      type="button"
-      onClick={() => setOpen(true)}
-      className="inline-flex size-9 items-center justify-center rounded-lg border border-border bg-card text-primary transition-colors hover:bg-muted md:hidden"
-      aria-label="Abrir menu"
-    >
-      <Menu className="size-5" />
-    </button>
   );
 }
 
@@ -172,47 +160,17 @@ interface SidebarContentProps {
   nome: string;
   slug: string;
   collapsed: boolean;
-  showToggle: boolean;
   onNavigate?: () => void;
-  onToggleCollapsed: () => void;
 }
 
-function SidebarContent({
-  nome,
-  slug,
-  collapsed,
-  showToggle,
-  onNavigate,
-  onToggleCollapsed,
-}: SidebarContentProps) {
+function SidebarContent({ nome, slug, collapsed, onNavigate }: SidebarContentProps) {
   const pathname = usePathname();
-
-  const toggleButton = showToggle ? (
-    <button
-      type="button"
-      onClick={onToggleCollapsed}
-      className={cn(
-        "inline-flex w-full items-center rounded-lg text-white/70 transition-colors hover:bg-white/10 hover:text-white",
-        collapsed ? "justify-center px-2 py-2" : "gap-2 px-3 py-2 text-sm",
-      )}
-      aria-label={collapsed ? "Expandir menu lateral" : "Recolher menu lateral"}
-    >
-      {collapsed ? (
-        <ChevronRight className="size-4 shrink-0" />
-      ) : (
-        <>
-          <ChevronLeft className="size-4 shrink-0" />
-          <span>Recolher menu</span>
-        </>
-      )}
-    </button>
-  ) : null;
 
   return (
     <>
       <div
         className={cn(
-          "shrink-0 border-b border-white/10 py-6",
+          "shrink-0 border-b border-white/10 py-4",
           collapsed ? "px-2 text-center" : "px-5",
         )}
       >
@@ -228,7 +186,7 @@ function SidebarContent({
         )}
       </div>
 
-      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-4 text-sm">
+      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-3 text-sm">
         {navItems.map(({ href, label, icon }) => {
           const isActive =
             href === "/dashboard"
@@ -249,12 +207,10 @@ function SidebarContent({
         })}
       </nav>
 
-      <div className="shrink-0 border-t border-white/10 p-4">
-        {toggleButton}
-
+      <div className="shrink-0 border-t border-white/10 p-3">
         <div
           className={cn(
-            "mt-2 flex items-center rounded-lg py-2",
+            "flex items-center rounded-lg py-2",
             collapsed ? "justify-center px-0" : "gap-3 px-2",
           )}
         >
@@ -274,15 +230,17 @@ function SidebarContent({
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-white">{nome}</p>
-                <Link
-                  href={slug ? `/${slug}` : "#"}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-0.5 inline-flex items-center gap-1 text-xs text-white/70 transition-colors hover:text-white"
-                >
-                  Ver meu site
-                  <ExternalLink className="size-3" />
-                </Link>
+                {slug ? (
+                  <Link
+                    href={`/${slug}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-0.5 inline-flex items-center gap-1 text-xs text-white/70 transition-colors hover:text-white"
+                  >
+                    Ver meu site
+                    <ExternalLink className="size-3" />
+                  </Link>
+                ) : null}
               </div>
             </>
           )}
@@ -312,7 +270,7 @@ function SidebarContent({
 
 function SidebarPanel({ nome, slug }: SidebarPanelProps) {
   const pathname = usePathname();
-  const { open, setOpen, collapsed, toggleCollapsed } = useSidebarContext();
+  const { open, setOpen, collapsed } = useSidebarContext();
 
   const close = useCallback(() => setOpen(false), [setOpen]);
 
@@ -344,17 +302,11 @@ function SidebarPanel({ nome, slug }: SidebarPanelProps) {
     <>
       <aside
         className={cn(
-          "fixed left-0 top-0 z-40 hidden h-screen flex-col bg-primary text-primary-foreground transition-all duration-300 md:flex",
-          collapsed ? "w-16" : "w-60",
+          "fixed top-10 left-0 z-40 hidden h-[calc(100vh-2.5rem)] flex-col bg-primary text-primary-foreground transition-[width] duration-200 ease-in-out md:flex",
+          collapsed ? "w-[52px]" : "w-60",
         )}
       >
-        <SidebarContent
-          nome={nome}
-          slug={slug}
-          collapsed={collapsed}
-          showToggle
-          onToggleCollapsed={toggleCollapsed}
-        />
+        <SidebarContent nome={nome} slug={slug} collapsed={collapsed} />
       </aside>
 
       {open ? (
@@ -369,7 +321,7 @@ function SidebarPanel({ nome, slug }: SidebarPanelProps) {
             <button
               type="button"
               onClick={close}
-              className="absolute right-3 top-5 inline-flex size-8 items-center justify-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"
+              className="absolute top-3 right-3 inline-flex size-8 items-center justify-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"
               aria-label="Fechar menu"
             >
               <X className="size-5" />
@@ -378,13 +330,27 @@ function SidebarPanel({ nome, slug }: SidebarPanelProps) {
               nome={nome}
               slug={slug}
               collapsed={false}
-              showToggle={false}
               onNavigate={close}
-              onToggleCollapsed={toggleCollapsed}
             />
           </aside>
         </div>
       ) : null}
     </>
+  );
+}
+
+/** @deprecated Use AppHeader hamburger on mobile */
+export function SidebarTrigger() {
+  const { setOpen } = useSidebarContext();
+
+  return (
+    <button
+      type="button"
+      onClick={() => setOpen(true)}
+      className="inline-flex size-9 items-center justify-center rounded-lg border border-border bg-card text-primary transition-colors hover:bg-muted md:hidden"
+      aria-label="Abrir menu"
+    >
+      <Menu className="size-5" />
+    </button>
   );
 }

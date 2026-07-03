@@ -43,7 +43,8 @@ const baseImovelSchema = z.object({
   }),
   status: z.enum(["disponivel", "reservado", "vendido", "locado"], {
     error: "Selecione o status.",
-  }),
+  }).optional(),
+  status_imovel_id: z.string().uuid({ error: "Selecione o status." }),
   cep: z
     .string()
     .trim()
@@ -69,6 +70,9 @@ const baseImovelSchema = z.object({
   portal_logradouro: z.string().trim().optional(),
   portal_numero: z.string().trim().optional(),
   portal_bairro: z.string().trim().optional(),
+  portal_cep: z.string().trim().optional(),
+  portal_cidade: z.string().trim().optional(),
+  portal_estado: z.string().trim().optional(),
   local_chaves: localChavesEnum,
   chaves_codigo: z.string().trim().optional(),
   chaves_descricao: z.string().trim().optional(),
@@ -104,6 +108,7 @@ const baseImovelSchema = z.object({
       "Informe uma URL válida (http ou https).",
     ),
   publicado_site: z.boolean(),
+  publicado_portais: z.boolean(),
   cliente_id: z.string().uuid().optional().nullable(),
   proprietario_novo: z
     .object({
@@ -135,6 +140,13 @@ export const imovelFormSchema = baseImovelSchema.superRefine((data, context) => 
   }
 
   if (data.portal_endereco_diferente) {
+    if (!data.portal_cep?.trim() || data.portal_cep.replace(/\D/g, "").length < 8) {
+      context.addIssue({
+        code: "custom",
+        message: "Informe o CEP para portais.",
+        path: ["portal_cep"],
+      });
+    }
     if (!data.portal_logradouro?.trim()) {
       context.addIssue({
         code: "custom",
@@ -154,6 +166,20 @@ export const imovelFormSchema = baseImovelSchema.superRefine((data, context) => 
         code: "custom",
         message: "Informe o bairro para portais.",
         path: ["portal_bairro"],
+      });
+    }
+    if (!data.portal_cidade?.trim()) {
+      context.addIssue({
+        code: "custom",
+        message: "Informe a cidade para portais.",
+        path: ["portal_cidade"],
+      });
+    }
+    if (!data.portal_estado?.trim() || data.portal_estado.length !== 2) {
+      context.addIssue({
+        code: "custom",
+        message: "Informe a UF para portais.",
+        path: ["portal_estado"],
       });
     }
   }
@@ -183,6 +209,7 @@ export const imovelFormDefaultValues: ImovelFormValues = {
   tipo: "apartamento",
   finalidade: "venda",
   status: "disponivel",
+  status_imovel_id: "",
   cep: "",
   logradouro: "",
   numero: "",
@@ -200,6 +227,9 @@ export const imovelFormDefaultValues: ImovelFormValues = {
   portal_logradouro: "",
   portal_numero: "",
   portal_bairro: "",
+  portal_cep: "",
+  portal_cidade: "",
+  portal_estado: "",
   local_chaves: "imobiliaria",
   chaves_codigo: "",
   chaves_descricao: "",
@@ -228,6 +258,7 @@ export const imovelFormDefaultValues: ImovelFormValues = {
   diferenciais: [],
   video_url: "",
   publicado_site: true,
+  publicado_portais: false,
   cliente_id: null,
   proprietario_novo: null,
 };

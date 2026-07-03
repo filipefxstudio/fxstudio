@@ -1,73 +1,138 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  DEFAULT_DIAS_ALERTA_INATIVIDADE,
-  STORAGE_KEY_DIAS_ALERTA_INATIVIDADE,
-} from "@/lib/constants/config";
+import { saveDashboardConfig } from "@/lib/actions/dashboard-config";
+import type { DashboardConfig } from "@/types";
 
-export function AbaFunil() {
-  const [dias, setDias] = useState(DEFAULT_DIAS_ALERTA_INATIVIDADE);
+interface AbaFunilProps {
+  initialConfig: DashboardConfig;
+}
+
+export function AbaFunil({ initialConfig }: AbaFunilProps) {
+  const [leadsVerde, setLeadsVerde] = useState(initialConfig.leads_verde_dias);
+  const [leadsAmarelo, setLeadsAmarelo] = useState(initialConfig.leads_amarelo_dias);
+  const [imoveisVerde, setImoveisVerde] = useState(initialConfig.imoveis_verde_dias);
+  const [imoveisAmarelo, setImoveisAmarelo] = useState(initialConfig.imoveis_amarelo_dias);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-
-  useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY_DIAS_ALERTA_INATIVIDADE);
-    if (stored) {
-      const parsed = Number(stored);
-      if (!Number.isNaN(parsed) && parsed > 0) {
-        setDias(parsed);
-      }
-    }
-  }, []);
 
   function handleSave(event: React.FormEvent) {
     event.preventDefault();
     setFeedback(null);
+    setError(null);
 
-    startTransition(() => {
-      localStorage.setItem(STORAGE_KEY_DIAS_ALERTA_INATIVIDADE, String(dias));
-      setFeedback("Configuração salva no navegador.");
+    startTransition(async () => {
+      const result = await saveDashboardConfig({
+        leads_verde_dias: leadsVerde,
+        leads_amarelo_dias: leadsAmarelo,
+        imoveis_verde_dias: imoveisVerde,
+        imoveis_amarelo_dias: imoveisAmarelo,
+      });
+
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+
+      setFeedback(result.message ?? "Configuração salva.");
     });
   }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Funil de vendas</CardTitle>
+        <CardTitle>Funil e alertas</CardTitle>
         <CardDescription>
-          Configure alertas de inatividade e prepare seu funil comercial.
+          Configure os limites de dias usados nos alertas de inatividade de leads e imóveis
+          desatualizados no dashboard.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <form onSubmit={handleSave} className="max-w-sm space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="dias-alerta">Dias para alerta de inatividade</Label>
-            <Input
-              id="dias-alerta"
-              type="number"
-              min={1}
-              max={90}
-              value={dias}
-              onChange={(e) => setDias(Number(e.target.value))}
-            />
+        <form onSubmit={handleSave} className="max-w-md space-y-6">
+          <fieldset className="space-y-4">
+            <legend className="text-sm font-semibold text-primary">
+              Leads — tempo sem interação
+            </legend>
             <p className="text-xs text-muted-foreground">
-              Padrão: {DEFAULT_DIAS_ALERTA_INATIVIDADE} dias. Usado no dashboard e filtros de
-              leads. Salvo em localStorage neste navegador (sem coluna dedicada em corretores na
-              Etapa 3).
+              Verde: 0 até o limite verde · Amarelo: até o limite amarelo · Vermelho: acima
             </p>
-          </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="leads-verde">Verde (até)</Label>
+                <Input
+                  id="leads-verde"
+                  type="number"
+                  min={0}
+                  max={90}
+                  value={leadsVerde}
+                  onChange={(e) => setLeadsVerde(Number(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">dias (padrão: 5)</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="leads-amarelo">Amarelo (até)</Label>
+                <Input
+                  id="leads-amarelo"
+                  type="number"
+                  min={1}
+                  max={180}
+                  value={leadsAmarelo}
+                  onChange={(e) => setLeadsAmarelo(Number(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">dias (padrão: 10, acima = vermelho)</p>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset className="space-y-4">
+            <legend className="text-sm font-semibold text-primary">
+              Imóveis — desatualização
+            </legend>
+            <p className="text-xs text-muted-foreground">
+              Verde: 0–30 · Amarelo: 31–45 · Vermelho: acima de 45 (valores padrão)
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="imoveis-verde">Verde (até)</Label>
+                <Input
+                  id="imoveis-verde"
+                  type="number"
+                  min={0}
+                  max={365}
+                  value={imoveisVerde}
+                  onChange={(e) => setImoveisVerde(Number(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">dias (padrão: 30)</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="imoveis-amarelo">Amarelo (até)</Label>
+                <Input
+                  id="imoveis-amarelo"
+                  type="number"
+                  min={1}
+                  max={730}
+                  value={imoveisAmarelo}
+                  onChange={(e) => setImoveisAmarelo(Number(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">dias (padrão: 45, acima = vermelho)</p>
+              </div>
+            </div>
+          </fieldset>
+
           <Button type="submit" disabled={isPending}>
             {isPending ? <Loader2 className="size-4 animate-spin" /> : null}
-            Salvar
+            Salvar alertas
           </Button>
+
           {feedback ? <p className="text-sm text-[#2DC653]">{feedback}</p> : null}
+          {error ? <p className="text-sm text-[#E63946]">{error}</p> : null}
         </form>
 
         <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground">

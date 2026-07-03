@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
-import { Header } from "@/components/dashboard/Header";
 import { ImoveisListing } from "@/components/imoveis/ImoveisListing";
-import { getImoveis } from "@/lib/actions/imoveis";
+import { getImoveis, getStatusImovelList } from "@/lib/actions/imoveis";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 
 export const metadata: Metadata = {
@@ -18,15 +17,18 @@ export default async function ImoveisPage() {
     redirect("/login");
   }
 
-  const imoveis = await getImoveis();
+  const [imoveis, statusList] = await Promise.all([
+    getImoveis(),
+    getStatusImovelList(corretor.id),
+  ]);
 
   return (
-    <>
-      <Header nome={corretor.nome} />
-
-      <div className="flex-1 p-4 md:p-6">
-        <ImoveisListing imoveis={imoveis} />
-      </div>
-    </>
+    <div className="flex-1 p-4 md:p-6">
+      <ImoveisListing
+        imoveis={imoveis}
+        corretorSlug={corretor.slug}
+        statusList={statusList}
+      />
+    </div>
   );
 }

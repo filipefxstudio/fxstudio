@@ -57,7 +57,7 @@ export function LeadCard({ lead, index }: LeadCardProps) {
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-1.5">
                 <Link
-                  href={`/dashboard/leads/${lead.id}`}
+                  href={`/dashboard/atendimentos/${lead.id}`}
                   className="truncate font-medium text-primary hover:underline"
                   onClick={(e) => e.stopPropagation()}
                 >

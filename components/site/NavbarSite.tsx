@@ -1,32 +1,45 @@
 "use client";
 
 import Link from "next/link";
-import { Menu, MessageCircle, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { buildWhatsAppUrl, buildContatoWhatsAppMessage } from "@/lib/site/whatsapp";
 import { cn } from "@/lib/utils";
 
 import { useSite } from "./SiteProvider";
 
-const NAV_ITEMS = [
+const BASE_NAV_ITEMS = [
   { href: "/", label: "Início" },
-  { href: "/imoveis", label: "Imóveis" },
+  { href: "/comprar", label: "Comprar" },
+  { href: "/alugar", label: "Alugar", requiresLocacao: true },
   { href: "/sobre", label: "Sobre" },
   { href: "/contato", label: "Contato" },
-];
+] as const;
 
 export function NavbarSite() {
-  const { corretor, link } = useSite();
+  const { corretor, link, hasImoveisLocacao } = useSite();
   const [open, setOpen] = useState(false);
-  const whatsappUrl = buildWhatsAppUrl(corretor, buildContatoWhatsAppMessage());
+
+  const navItems = BASE_NAV_ITEMS.filter(
+    (item) => !("requiresLocacao" in item && item.requiresLocacao) || hasImoveisLocacao,
+  );
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-white/95 backdrop-blur">
+    <header
+      className="sticky top-0 z-40 border-b border-white/10 bg-primary text-white"
+      style={{ backgroundColor: "var(--color-primary)" }}
+    >
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         <Link href={link("/")} className="flex min-w-0 items-center gap-3">
-          {corretor.foto_url ? (
+          {corretor.logo_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={corretor.logo_url}
+              alt={corretor.nome}
+              className="max-h-10 max-w-[140px] object-contain"
+            />
+          ) : corretor.foto_url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={corretor.foto_url}
@@ -34,41 +47,38 @@ export function NavbarSite() {
               className="size-10 rounded-full object-cover"
             />
           ) : (
-            <div className="flex size-10 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white">
+            <div
+              className="flex size-10 items-center justify-center rounded-full text-sm font-semibold text-white"
+              style={{ backgroundColor: "var(--color-secondary)" }}
+            >
               {corretor.nome.charAt(0).toUpperCase()}
             </div>
           )}
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-primary">{corretor.nome}</p>
-            {corretor.creci ? (
-              <p className="truncate text-xs text-muted-foreground">CRECI {corretor.creci}</p>
-            ) : null}
-          </div>
         </Link>
 
-        <nav className="hidden items-center gap-6 md:flex">
-          {NAV_ITEMS.map((item) => (
+        <nav className="hidden items-center gap-5 lg:flex">
+          {navItems.map((item) => (
             <Link
               key={item.href}
               href={link(item.href)}
-              className="text-sm font-medium text-[#2D3748] transition-colors hover:text-primary"
+              className="text-sm font-medium text-white transition-opacity hover:opacity-80"
             >
               {item.label}
             </Link>
           ))}
-          {whatsappUrl ? (
-            <Button asChild size="sm" className="bg-[#25D366] hover:bg-[#1da851]">
-              <a href={whatsappUrl} target="_blank" rel="noopener noreferrer">
-                <MessageCircle className="size-4" />
-                WhatsApp
-              </a>
-            </Button>
-          ) : null}
+          <Button
+            asChild
+            size="sm"
+            className="text-white hover:opacity-90"
+            style={{ backgroundColor: "var(--color-secondary)" }}
+          >
+            <Link href={link("/avaliar")}>Avaliar Imóvel</Link>
+          </Button>
         </nav>
 
         <button
           type="button"
-          className="inline-flex items-center justify-center rounded-md p-2 text-primary md:hidden"
+          className="inline-flex items-center justify-center rounded-md p-2 text-white lg:hidden"
           onClick={() => setOpen((value) => !value)}
           aria-label={open ? "Fechar menu" : "Abrir menu"}
         >
@@ -78,32 +88,30 @@ export function NavbarSite() {
 
       <div
         className={cn(
-          "border-t border-border bg-white md:hidden",
+          "border-t border-white/10 lg:hidden",
           open ? "block" : "hidden",
         )}
+        style={{ backgroundColor: "var(--color-primary)" }}
       >
         <nav className="flex flex-col gap-1 px-4 py-3">
-          {NAV_ITEMS.map((item) => (
+          {navItems.map((item) => (
             <Link
               key={item.href}
               href={link(item.href)}
-              className="rounded-md px-3 py-2 text-sm font-medium text-[#2D3748] hover:bg-muted"
+              className="rounded-md px-3 py-2 text-sm font-medium text-white hover:bg-white/10"
               onClick={() => setOpen(false)}
             >
               {item.label}
             </Link>
           ))}
-          {whatsappUrl ? (
-            <a
-              href={whatsappUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-2 inline-flex items-center justify-center gap-2 rounded-lg bg-[#25D366] px-3 py-2 text-sm font-medium text-white"
-            >
-              <MessageCircle className="size-4" />
-              WhatsApp
-            </a>
-          ) : null}
+          <Link
+            href={link("/avaliar")}
+            className="mt-2 inline-flex items-center justify-center rounded-lg px-3 py-2 text-sm font-medium text-white"
+            style={{ backgroundColor: "var(--color-secondary)" }}
+            onClick={() => setOpen(false)}
+          >
+            Avaliar Imóvel
+          </Link>
         </nav>
       </div>
     </header>

@@ -1,20 +1,15 @@
 import type { Metadata } from "next";
 
-import { FiltrosBusca } from "@/components/site/FiltrosBusca";
-import { ImovelCardPublico } from "@/components/site/ImovelCardPublico";
+import { SiteImoveisListing } from "@/components/site/SiteImoveisListing";
 import { parseImoveisSearchParams } from "@/lib/site/paths";
-import {
-  getBairrosPublicos,
-  getCorretorByDominio,
-  getImoveisPublicos,
-} from "@/lib/site/queries";
+import { getCorretorByDominio } from "@/lib/site/queries";
 
-interface CustomImoveisPageProps {
+interface CustomImoveisListingPageProps {
   params: Promise<{ hostname: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
-export async function generateMetadata({ params }: CustomImoveisPageProps): Promise<Metadata> {
+export async function generateMetadata({ params }: CustomImoveisListingPageProps): Promise<Metadata> {
   const { hostname } = await params;
   const corretor = await getCorretorByDominio(decodeURIComponent(hostname));
 
@@ -24,53 +19,25 @@ export async function generateMetadata({ params }: CustomImoveisPageProps): Prom
   };
 }
 
-export default async function CustomImoveisPage({
+export default async function CustomImoveisListingPage({
   params,
   searchParams,
-}: CustomImoveisPageProps) {
+}: CustomImoveisListingPageProps) {
   const { hostname } = await params;
-  const decodedHostname = decodeURIComponent(hostname);
   const query = await searchParams;
-  const corretor = await getCorretorByDominio(decodedHostname);
+  const corretor = await getCorretorByDominio(decodeURIComponent(hostname));
 
   if (!corretor) {
     return null;
   }
 
   const filters = parseImoveisSearchParams(query);
-  const [imoveis, bairros] = await Promise.all([
-    getImoveisPublicos(corretor.id, filters),
-    getBairrosPublicos(corretor.id),
-  ]);
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-primary">Imóveis disponíveis</h1>
-        <p className="mt-2 text-muted-foreground">
-          {imoveis.length} {imoveis.length === 1 ? "resultado" : "resultados"} encontrados
-        </p>
-      </div>
-
-      <div className="grid gap-8 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside>
-          <FiltrosBusca bairros={bairros} initialValues={filters} layout="sidebar" />
-        </aside>
-
-        <div>
-          {imoveis.length > 0 ? (
-            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
-              {imoveis.map((imovel) => (
-                <ImovelCardPublico key={imovel.id} imovel={imovel} />
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-xl border border-dashed border-border p-10 text-center text-muted-foreground">
-              Nenhum imóvel encontrado com os filtros selecionados.
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
+    <SiteImoveisListing
+      corretor={corretor}
+      filters={filters}
+      title="Imóveis disponíveis"
+    />
   );
 }

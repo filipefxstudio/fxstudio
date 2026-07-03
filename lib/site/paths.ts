@@ -57,6 +57,7 @@ export function parseImoveisSearchParams(
     tipo: parseTipo(getParam(searchParams, "tipo")),
     finalidade: parseFinalidade(getParam(searchParams, "finalidade")),
     bairro: getParam(searchParams, "bairro"),
+    codigo: getParam(searchParams, "codigo")?.trim() || undefined,
     valorMin: parseNumber(getParam(searchParams, "valorMin")),
     valorMax: parseNumber(getParam(searchParams, "valorMax")),
   };

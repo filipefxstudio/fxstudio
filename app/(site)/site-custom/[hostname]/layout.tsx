@@ -22,7 +22,7 @@ export async function generateMetadata({ params }: CustomDomainLayoutProps): Pro
 
   return {
     title: `${corretor.nome} — Imóveis`,
-    description: corretor.sobre ?? `Imóveis disponíveis com ${corretor.nome}`,
+    description: corretor.sobre_texto ?? corretor.sobre ?? `Imóveis disponíveis com ${corretor.nome}`,
   };
 }
 

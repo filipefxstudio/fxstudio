@@ -10,6 +10,7 @@ interface SiteContextValue {
   corretor: Corretor;
   basePath: string;
   link: (path: string) => string;
+  hasImoveisLocacao: boolean;
 }
 
 const SiteContext = createContext<SiteContextValue | null>(null);
@@ -17,13 +18,20 @@ const SiteContext = createContext<SiteContextValue | null>(null);
 interface SiteProviderProps {
   corretor: Corretor;
   basePath: string;
+  hasImoveisLocacao?: boolean;
   children: React.ReactNode;
 }
 
-export function SiteProvider({ corretor, basePath, children }: SiteProviderProps) {
+export function SiteProvider({
+  corretor,
+  basePath,
+  hasImoveisLocacao = false,
+  children,
+}: SiteProviderProps) {
   const value: SiteContextValue = {
     corretor,
     basePath,
+    hasImoveisLocacao,
     link: (path: string) => sitePath(basePath, path),
   };
 

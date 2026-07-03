@@ -25,23 +25,29 @@ interface FiltrosBuscaProps {
     tipo?: TipoImovel;
     finalidade?: FinalidadeImovel;
     bairro?: string;
+    codigo?: string;
     valorMin?: number;
     valorMax?: number;
   };
   layout?: "hero" | "sidebar";
+  fixedFinalidade?: FinalidadeImovel;
 }
 
 export function FiltrosBusca({
   bairros = [],
   initialValues = {},
   layout = "sidebar",
+  fixedFinalidade,
 }: FiltrosBuscaProps) {
   const router = useRouter();
   const { link } = useSite();
 
   const [tipo, setTipo] = useState(initialValues.tipo ?? undefined);
-  const [finalidade, setFinalidade] = useState(initialValues.finalidade ?? undefined);
+  const [finalidade, setFinalidade] = useState(
+    fixedFinalidade ?? initialValues.finalidade ?? undefined,
+  );
   const [bairro, setBairro] = useState(initialValues.bairro ?? undefined);
+  const [codigo, setCodigo] = useState(initialValues.codigo ?? "");
   const [valorMin, setValorMin] = useState(
     initialValues.valorMin ? String(initialValues.valorMin) : "",
   );
@@ -53,15 +59,19 @@ export function FiltrosBusca({
     event.preventDefault();
 
     const params = new URLSearchParams();
+    const finalidadeAtiva = fixedFinalidade ?? finalidade;
 
     if (tipo) {
       params.set("tipo", tipo);
     }
-    if (finalidade) {
-      params.set("finalidade", finalidade);
+    if (finalidadeAtiva) {
+      params.set("finalidade", finalidadeAtiva);
     }
     if (bairro) {
       params.set("bairro", bairro);
+    }
+    if (codigo.trim()) {
+      params.set("codigo", codigo.trim());
     }
     if (valorMin) {
       params.set("valorMin", valorMin.replace(/\D/g, ""));
@@ -87,10 +97,7 @@ export function FiltrosBusca({
     >
       <div className="space-y-2">
         <Label htmlFor="tipo">Tipo</Label>
-        <Select
-          value={tipo}
-          onValueChange={(value) => setTipo(value as TipoImovel)}
-        >
+        <Select value={tipo} onValueChange={(value) => setTipo(value as TipoImovel)}>
           <SelectTrigger id="tipo">
             <SelectValue placeholder="Todos" />
           </SelectTrigger>
@@ -104,24 +111,26 @@ export function FiltrosBusca({
         </Select>
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="finalidade">Finalidade</Label>
-        <Select
-          value={finalidade}
-          onValueChange={(value) => setFinalidade(value as FinalidadeImovel)}
-        >
-          <SelectTrigger id="finalidade">
-            <SelectValue placeholder="Todas" />
-          </SelectTrigger>
-          <SelectContent>
-            {FINALIDADES_IMOVEL.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      {!fixedFinalidade ? (
+        <div className="space-y-2">
+          <Label htmlFor="finalidade">Finalidade</Label>
+          <Select
+            value={finalidade}
+            onValueChange={(value) => setFinalidade(value as FinalidadeImovel)}
+          >
+            <SelectTrigger id="finalidade">
+              <SelectValue placeholder="Todas" />
+            </SelectTrigger>
+            <SelectContent>
+              {FINALIDADES_IMOVEL.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
 
       <div className="space-y-2">
         <Label htmlFor="bairro">Bairro</Label>
@@ -141,11 +150,21 @@ export function FiltrosBusca({
         ) : (
           <Input
             id="bairro"
-            value={bairro}
-            onChange={(event) => setBairro(event.target.value)}
+            value={bairro ?? ""}
+            onChange={(event) => setBairro(event.target.value || undefined)}
             placeholder="Digite o bairro"
           />
         )}
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="codigo">Código</Label>
+        <Input
+          id="codigo"
+          value={codigo}
+          onChange={(event) => setCodigo(event.target.value)}
+          placeholder="Ex: AP101"
+        />
       </div>
 
       <div className="space-y-2">
@@ -171,7 +190,11 @@ export function FiltrosBusca({
       </div>
 
       <div className={isHero ? "sm:col-span-2 lg:col-span-5" : ""}>
-        <Button type="submit" className="w-full bg-accent hover:bg-accent/90">
+        <Button
+          type="submit"
+          className="w-full text-white hover:opacity-90"
+          style={{ backgroundColor: "var(--color-secondary)" }}
+        >
           <Search className="size-4" />
           Buscar imóveis
         </Button>

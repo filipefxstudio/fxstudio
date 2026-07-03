@@ -1,25 +1,25 @@
 import type { EtapaLead, OrigemLead, TemperaturaLead } from "@/types";
 
+/** Colunas do funil Kanban (7 etapas visíveis). */
 export const ETAPAS_LEAD: readonly EtapaLead[] = [
   "novo",
   "contato_feito",
   "qualificado",
   "visita_agendada",
   "proposta",
-  "negociacao",
   "fechado",
   "perdido",
 ] as const;
 
 export const ETAPA_LEAD_LABELS: Record<EtapaLead, string> = {
-  novo: "Novo",
+  novo: "Leads",
   contato_feito: "Contato feito",
   qualificado: "Qualificado",
-  visita_agendada: "Visita agendada",
+  visita_agendada: "Visita",
   proposta: "Proposta",
-  negociacao: "Negociação",
-  fechado: "Fechado",
-  perdido: "Perdido",
+  negociacao: "Proposta",
+  fechado: "Venda",
+  perdido: "Negócio perdido",
 };
 
 export const ORIGEM_LEAD_LABELS: Record<OrigemLead, string> = {

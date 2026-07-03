@@ -60,7 +60,7 @@ export function KanbanColumn({ etapa, label, leads, accent = "default" }: Kanban
             ))}
             {provided.placeholder}
             {leads.length === 0 ? (
-              <p className="py-6 text-center text-xs text-muted-foreground">Nenhum lead</p>
+              <p className="py-6 text-center text-xs text-muted-foreground">Nenhum atendimento</p>
             ) : null}
           </div>
         )}

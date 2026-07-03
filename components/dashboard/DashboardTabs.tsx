@@ -14,9 +14,13 @@ export function DashboardTabs({ activeTab, onTabChange }: DashboardTabsProps) {
       value={activeTab}
       onValueChange={(value) => onTabChange(value as DashboardTab)}
     >
-      <TabsList>
-        <TabsTrigger value="venda">Venda</TabsTrigger>
-        <TabsTrigger value="locacao">Locação</TabsTrigger>
+      <TabsList className="h-auto w-full flex-wrap justify-start gap-1 overflow-visible sm:w-auto">
+        <TabsTrigger value="venda" className="flex-1 sm:flex-none">
+          Venda
+        </TabsTrigger>
+        <TabsTrigger value="locacao" className="flex-1 sm:flex-none">
+          Locação
+        </TabsTrigger>
       </TabsList>
     </Tabs>
   );

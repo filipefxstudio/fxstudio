@@ -6,10 +6,12 @@ import {
   DEFAULT_MIDIAS_ORIGEM,
   DEFAULT_TIPOS_IMOVEL_CUSTOM,
   EQUIPE_LIMITE_USUARIOS,
+  STORAGE_BUCKET_MARCA_DAGUA,
 } from "@/lib/constants/imoveis";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
+import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import type { MidiaOrigem, PapelUsuario, Perfil, TipoImovelCustom } from "@/types";
+import type { MarcaDaguaConfig, MidiaOrigem, PapelUsuario, Perfil, StatusImovel, TipoImovelCustom } from "@/types";
 
 export type ConfigActionResult = {
   success?: boolean;
@@ -338,4 +340,253 @@ export async function togglePerfilAtivo(
 
   revalidatePath("/dashboard/configuracoes");
   return { success: true };
+}
+
+export async function getStatusImovelConfig(): Promise<StatusImovel[]> {
+  const corretor = await getCorretorForUser();
+
+  if (!corretor) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("status_imovel")
+    .select("*")
+    .eq("corretor_id", corretor.id)
+    .order("ordem");
+
+  if (error) {
+    console.error("[getStatusImovelConfig] failed", error);
+    return [];
+  }
+
+  return (data ?? []) as StatusImovel[];
+}
+
+export async function addStatusImovel(data: {
+  nome: string;
+  cor: string;
+  ordem?: number;
+}): Promise<ConfigActionResult> {
+  const corretor = await getCorretorForUser();
+
+  if (!corretor) {
+    return { error: "Sessão expirada." };
+  }
+
+  const nome = data.nome.trim();
+  if (!nome) {
+    return { error: "Informe o nome do status." };
+  }
+
+  const supabase = await createClient();
+  const { data: last } = await supabase
+    .from("status_imovel")
+    .select("ordem")
+    .eq("corretor_id", corretor.id)
+    .order("ordem", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const ordem = data.ordem ?? (last?.ordem ?? 0) + 1;
+
+  const { error } = await supabase.from("status_imovel").insert({
+    corretor_id: corretor.id,
+    nome,
+    cor: data.cor,
+    padrao: false,
+    ativo: true,
+    ordem,
+  });
+
+  if (error) {
+    return { error: "Não foi possível adicionar o status." };
+  }
+
+  revalidatePath("/dashboard/configuracoes");
+  return { success: true, message: "Status adicionado." };
+}
+
+export async function updateStatusImovel(
+  id: string,
+  data: { nome?: string; cor?: string; ordem?: number; ativo?: boolean },
+): Promise<ConfigActionResult> {
+  const corretor = await getCorretorForUser();
+
+  if (!corretor) {
+    return { error: "Sessão expirada." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("status_imovel")
+    .update(data)
+    .eq("id", id)
+    .eq("corretor_id", corretor.id);
+
+  if (error) {
+    return { error: "Não foi possível atualizar o status." };
+  }
+
+  revalidatePath("/dashboard/configuracoes");
+  return { success: true };
+}
+
+export async function deleteStatusImovel(id: string): Promise<ConfigActionResult> {
+  const corretor = await getCorretorForUser();
+
+  if (!corretor) {
+    return { error: "Sessão expirada." };
+  }
+
+  const supabase = await createClient();
+  const { data: status } = await supabase
+    .from("status_imovel")
+    .select("padrao")
+    .eq("id", id)
+    .eq("corretor_id", corretor.id)
+    .maybeSingle();
+
+  if (!status) {
+    return { error: "Status não encontrado." };
+  }
+
+  if (status.padrao) {
+    return { error: "Status padrão não podem ser excluídos. Desative-o em vez disso." };
+  }
+
+  const { error } = await supabase
+    .from("status_imovel")
+    .delete()
+    .eq("id", id)
+    .eq("corretor_id", corretor.id);
+
+  if (error) {
+    return { error: "Não foi possível excluir o status." };
+  }
+
+  revalidatePath("/dashboard/configuracoes");
+  return { success: true };
+}
+
+export async function getMarcaDaguaConfig(): Promise<MarcaDaguaConfig | null> {
+  const corretor = await getCorretorForUser();
+
+  if (!corretor) {
+    return null;
+  }
+
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("marca_dagua_config")
+    .select("*")
+    .eq("corretor_id", corretor.id)
+    .maybeSingle();
+
+  return (data as MarcaDaguaConfig | null) ?? null;
+}
+
+export async function saveMarcaDaguaConfig(data: {
+  tamanho_percent: number;
+  opacidade_percent: number;
+  posicao: string;
+}): Promise<ConfigActionResult> {
+  const corretor = await getCorretorForUser();
+
+  if (!corretor) {
+    return { error: "Sessão expirada." };
+  }
+
+  const supabase = await createClient();
+  const existing = await getMarcaDaguaConfig();
+
+  if (existing) {
+    const { error } = await supabase
+      .from("marca_dagua_config")
+      .update({
+        ...data,
+        atualizado_em: new Date().toISOString(),
+      })
+      .eq("corretor_id", corretor.id);
+
+    if (error) {
+      return { error: "Não foi possível salvar a configuração." };
+    }
+  } else {
+    const { error } = await supabase.from("marca_dagua_config").insert({
+      corretor_id: corretor.id,
+      ...data,
+    });
+
+    if (error) {
+      return { error: "Não foi possível salvar a configuração." };
+    }
+  }
+
+  revalidatePath("/dashboard/configuracoes");
+  return { success: true, message: "Configurações salvas." };
+}
+
+export async function uploadMarcaDaguaLogo(
+  formData: FormData,
+): Promise<ConfigActionResult & { logoUrl?: string }> {
+  const corretor = await getCorretorForUser();
+
+  if (!corretor) {
+    return { error: "Sessão expirada." };
+  }
+
+  const file = formData.get("logo") as File | null;
+
+  if (!file || file.size === 0) {
+    return { error: "Selecione uma imagem." };
+  }
+
+  let admin;
+
+  try {
+    admin = createServiceRoleClient();
+  } catch {
+    return { error: "Upload indisponível. Verifique a configuração do Supabase Storage." };
+  }
+
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "png";
+  const storagePath = `${corretor.id}/logo.${extension}`;
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  const { error: uploadError } = await admin.storage
+    .from(STORAGE_BUCKET_MARCA_DAGUA)
+    .upload(storagePath, buffer, {
+      contentType: file.type || "image/png",
+      upsert: true,
+    });
+
+  if (uploadError) {
+    console.error("[uploadMarcaDaguaLogo] failed", uploadError);
+    return { error: "Não foi possível enviar a logo." };
+  }
+
+  const { data: publicUrlData } = admin.storage
+    .from(STORAGE_BUCKET_MARCA_DAGUA)
+    .getPublicUrl(storagePath);
+
+  const logoUrl = publicUrlData.publicUrl;
+  const supabase = await createClient();
+  const existing = await getMarcaDaguaConfig();
+
+  if (existing) {
+    await supabase
+      .from("marca_dagua_config")
+      .update({ logo_url: logoUrl, atualizado_em: new Date().toISOString() })
+      .eq("corretor_id", corretor.id);
+  } else {
+    await supabase.from("marca_dagua_config").insert({
+      corretor_id: corretor.id,
+      logo_url: logoUrl,
+    });
+  }
+
+  revalidatePath("/dashboard/configuracoes");
+  return { success: true, logoUrl, message: "Logo enviada." };
 }

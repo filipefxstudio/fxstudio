@@ -3,14 +3,25 @@
 import { AbaAgente } from "@/components/configuracoes/AbaAgente";
 import { AbaEquipe } from "@/components/configuracoes/AbaEquipe";
 import { AbaFunil } from "@/components/configuracoes/AbaFunil";
+import { AbaMarcaDagua } from "@/components/configuracoes/AbaMarcaDagua";
 import { AbaMidiasOrigem } from "@/components/configuracoes/AbaMidiasOrigem";
 import { AbaPerfil } from "@/components/configuracoes/AbaPerfil";
 import { AbaSite } from "@/components/configuracoes/AbaSite";
+import { AbaStatusImovel } from "@/components/configuracoes/AbaStatusImovel";
 import { AbaTiposImovel } from "@/components/configuracoes/AbaTiposImovel";
 import { AbaWhatsApp } from "@/components/configuracoes/AbaWhatsApp";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { AgenteConfigPublic } from "@/lib/actions/agente-config";
-import type { Corretor, MidiaOrigem, Perfil, PlanoAssinatura, TipoImovelCustom } from "@/types";
+import type {
+  Corretor,
+  DashboardConfig,
+  MarcaDaguaConfig,
+  MidiaOrigem,
+  Perfil,
+  PlanoAssinatura,
+  StatusImovel,
+  TipoImovelCustom,
+} from "@/types";
 
 interface ConfiguracoesTabsProps {
   corretor: Corretor;
@@ -19,6 +30,9 @@ interface ConfiguracoesTabsProps {
   tiposImovel: TipoImovelCustom[];
   midiasOrigem: MidiaOrigem[];
   perfisEquipe: Perfil[];
+  statusImovel: StatusImovel[];
+  marcaDaguaConfig: MarcaDaguaConfig | null;
+  dashboardConfig: DashboardConfig;
 }
 
 export function ConfiguracoesTabs({
@@ -28,6 +42,9 @@ export function ConfiguracoesTabs({
   tiposImovel,
   midiasOrigem,
   perfisEquipe,
+  statusImovel,
+  marcaDaguaConfig,
+  dashboardConfig,
 }: ConfiguracoesTabsProps) {
   return (
     <Tabs defaultValue="perfil" className="w-full">
@@ -37,6 +54,8 @@ export function ConfiguracoesTabs({
         <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
         <TabsTrigger value="agente">Agente de IA</TabsTrigger>
         <TabsTrigger value="tipos">Tipos de imóvel</TabsTrigger>
+        <TabsTrigger value="status">Status de imóvel</TabsTrigger>
+        <TabsTrigger value="marca-dagua">Marca d&apos;água</TabsTrigger>
         <TabsTrigger value="midias">Mídias de origem</TabsTrigger>
         <TabsTrigger value="equipe">Equipe</TabsTrigger>
         <TabsTrigger value="funil">Funil</TabsTrigger>
@@ -62,6 +81,14 @@ export function ConfiguracoesTabs({
         <AbaTiposImovel tipos={tiposImovel} />
       </TabsContent>
 
+      <TabsContent value="status">
+        <AbaStatusImovel statusList={statusImovel} />
+      </TabsContent>
+
+      <TabsContent value="marca-dagua">
+        <AbaMarcaDagua initialConfig={marcaDaguaConfig} />
+      </TabsContent>
+
       <TabsContent value="midias">
         <AbaMidiasOrigem midias={midiasOrigem} />
       </TabsContent>
@@ -71,7 +98,7 @@ export function ConfiguracoesTabs({
       </TabsContent>
 
       <TabsContent value="funil">
-        <AbaFunil />
+        <AbaFunil initialConfig={dashboardConfig} />
       </TabsContent>
     </Tabs>
   );

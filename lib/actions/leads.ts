@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { ETAPAS_LEAD, isEtapaLead } from "@/lib/constants/leads";
+import { podeAvancarEtapa } from "@/lib/leads/etapa-order";
 import {
   mergeLeadObservacoesMeta,
   parseLeadObservacoes,
@@ -302,6 +303,7 @@ export async function createLead(input: CreateLeadInput): Promise<LeadActionResu
     return { error: "Não foi possível criar o lead." };
   }
 
+  revalidatePath("/dashboard/atendimentos");
   revalidatePath("/dashboard/leads");
   revalidatePath("/dashboard");
   return { success: true, leadId: data.id, message: "Lead criado com sucesso." };
@@ -357,7 +359,20 @@ export async function updateLead(
   if (input.prazo_decisao !== undefined) {
     updatePayload.prazo_decisao = input.prazo_decisao?.trim() || null;
   }
-  if (input.etapa !== undefined) updatePayload.etapa = input.etapa;
+  if (input.etapa !== undefined) {
+    const { data: etapaAtualRow } = await supabase
+      .from("leads")
+      .select("etapa")
+      .eq("id", leadId)
+      .eq("corretor_id", corretor.id)
+      .maybeSingle();
+
+    const etapaAtual = (etapaAtualRow?.etapa ?? "novo") as EtapaLead;
+    if (!podeAvancarEtapa(etapaAtual, input.etapa)) {
+      return { error: "Não é possível retroceder a etapa do atendimento." };
+    }
+    updatePayload.etapa = input.etapa;
+  }
   if (input.temperatura !== undefined) updatePayload.temperatura = input.temperatura;
 
   if (input.qualificado !== undefined) {
@@ -399,7 +414,9 @@ export async function updateLead(
     return { error: "Não foi possível atualizar o lead." };
   }
 
+  revalidatePath("/dashboard/atendimentos");
   revalidatePath("/dashboard/leads");
+  revalidatePath(`/dashboard/atendimentos/${leadId}`);
   revalidatePath(`/dashboard/leads/${leadId}`);
   revalidatePath("/dashboard");
   return { success: true, message: "Lead atualizado." };
@@ -463,7 +480,9 @@ export async function addInteracao(
     })
     .eq("id", leadId);
 
+  revalidatePath(`/dashboard/atendimentos/${leadId}`);
   revalidatePath(`/dashboard/leads/${leadId}`);
+  revalidatePath("/dashboard/atendimentos");
   revalidatePath("/dashboard/leads");
   revalidatePath("/dashboard");
   return { success: true, message: "Interação registrada." };
@@ -523,7 +542,9 @@ export async function registerProposta(
     })
     .eq("id", leadId);
 
+  revalidatePath(`/dashboard/atendimentos/${leadId}`);
   revalidatePath(`/dashboard/leads/${leadId}`);
+  revalidatePath("/dashboard/atendimentos");
   revalidatePath("/dashboard/leads");
   revalidatePath("/dashboard");
   return { success: true, message: "Proposta registrada." };
@@ -590,6 +611,7 @@ export async function linkImovel(
     return { error: "Não foi possível vincular o imóvel." };
   }
 
+  revalidatePath(`/dashboard/atendimentos/${leadId}`);
   revalidatePath(`/dashboard/leads/${leadId}`);
   return { success: true, message: "Imóvel indicado." };
 }

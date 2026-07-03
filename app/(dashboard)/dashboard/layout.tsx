@@ -21,9 +21,10 @@ export default async function DashboardLayout({
   const corretor = await getCorretorForUser();
   const nome = corretor?.nome ?? user.email?.split("@")[0] ?? "Corretor";
   const slug = corretor?.slug ?? "";
+  const logoUrl = corretor?.logo_url ?? null;
 
   return (
-    <DashboardShell nome={nome} slug={slug}>
+    <DashboardShell nome={nome} slug={slug} logoUrl={logoUrl}>
       {children}
     </DashboardShell>
   );

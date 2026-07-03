@@ -28,6 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -42,11 +43,11 @@ import {
   ESTADOS_BR,
   FINALIDADES_IMOVEL,
   LOCAL_CHAVES_OPCOES,
-  STATUS_IMOVEL,
   TIPOS_IMOVEL,
   VAGAS_COBERTURA_OPCOES,
   VAGAS_TIPO_OPCOES,
 } from "@/lib/constants/imoveis";
+import { geocodeAddress } from "@/lib/imoveis/geocode";
 import { buildComplementoString, fotosToFotoItems, imovelToFormValues } from "@/lib/imoveis/form";
 import { generateImovelSlug, cn } from "@/lib/utils";
 import {
@@ -54,11 +55,12 @@ import {
   imovelFormSchema,
   type ImovelFormValues,
 } from "@/lib/validations/imovel";
-import type { Imovel } from "@/types";
+import type { Imovel, StatusImovel } from "@/types";
 
 interface ImovelFormProps {
   mode?: "create" | "edit";
   imovel?: Imovel;
+  statusList?: StatusImovel[];
 }
 
 function FieldError({ message }: { message?: string }) {
@@ -73,7 +75,7 @@ function FieldError({ message }: { message?: string }) {
   );
 }
 
-export function ImovelForm({ mode = "create", imovel }: ImovelFormProps) {
+export function ImovelForm({ mode = "create", imovel, statusList = [] }: ImovelFormProps) {
   const isEdit = mode === "edit" && imovel;
 
   const [fotos, setFotos] = useState<FotoItem[]>(() =>
@@ -107,8 +109,18 @@ export function ImovelForm({ mode = "create", imovel }: ImovelFormProps) {
   const complementoTorre = watch("complemento_torre");
   const condominioNome = watch("condominio_nome");
   const portalDiferente = watch("portal_endereco_diferente");
+  const portalCep = watch("portal_cep");
+  const portalLogradouro = watch("portal_logradouro");
+  const portalNumero = watch("portal_numero");
+  const portalBairro = watch("portal_bairro");
+  const portalCidade = watch("portal_cidade");
+  const portalEstado = watch("portal_estado");
+  const logradouro = watch("logradouro");
+  const bairro = watch("bairro");
+  const estado = watch("estado");
   const localChaves = watch("local_chaves");
   const clienteId = watch("cliente_id");
+  const statusImovelId = watch("status_imovel_id");
 
   const slugPreview = useMemo(
     () => generateImovelSlug(titulo ?? "", cidade ?? ""),
@@ -120,6 +132,64 @@ export function ImovelForm({ mode = "create", imovel }: ImovelFormProps) {
       getProximoCodigoPreview().then(setProximoCodigo);
     }
   }, [isEdit]);
+
+  useEffect(() => {
+    if (!isEdit && statusList.length > 0 && !statusImovelId) {
+      const defaultStatus = statusList.find((s) => s.nome === "Disponível") ?? statusList[0];
+      if (defaultStatus) {
+        setValue("status_imovel_id", defaultStatus.id);
+      }
+    }
+  }, [isEdit, statusList, statusImovelId, setValue]);
+
+  useEffect(() => {
+    const address = portalDiferente
+      ? {
+          logradouro: portalLogradouro ?? "",
+          numero: portalNumero ?? "",
+          bairro: portalBairro ?? "",
+          cidade: portalCidade ?? "",
+          estado: portalEstado ?? "",
+          cep: portalCep,
+        }
+      : {
+          logradouro: logradouro ?? "",
+          numero: numero ?? "",
+          bairro: bairro ?? "",
+          cidade: cidade ?? "",
+          estado: estado ?? "",
+          cep,
+        };
+
+    if (!address.logradouro || !address.cidade) {
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      const result = await geocodeAddress(address);
+      if (result) {
+        setValue("latitude", result.latitude, { shouldValidate: true });
+        setValue("longitude", result.longitude, { shouldValidate: true });
+      }
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [
+    cep,
+    numero,
+    logradouro,
+    bairro,
+    estado,
+    cidade,
+    portalDiferente,
+    portalCep,
+    portalLogradouro,
+    portalNumero,
+    portalBairro,
+    portalCidade,
+    portalEstado,
+    setValue,
+  ]);
 
   useEffect(() => {
     if (!cep || !numero) {
@@ -286,7 +356,7 @@ export function ImovelForm({ mode = "create", imovel }: ImovelFormProps) {
             </p>
           ) : null}
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
             <div className="space-y-2">
               <Label>Tipo</Label>
               <Controller
@@ -332,29 +402,29 @@ export function ImovelForm({ mode = "create", imovel }: ImovelFormProps) {
               />
               <FieldError message={errors.finalidade?.message} />
             </div>
-          </div>
 
-          <div className="space-y-2">
-            <Label>Status</Label>
-            <Controller
-              control={control}
-              name="status"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger aria-invalid={Boolean(errors.status)}>
-                    <SelectValue placeholder="Selecione o status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STATUS_IMOVEL.map((item) => (
-                      <SelectItem key={item.value} value={item.value}>
-                        {item.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
-            <FieldError message={errors.status?.message} />
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Controller
+                control={control}
+                name="status_imovel_id"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger aria-invalid={Boolean(errors.status_imovel_id)}>
+                      <SelectValue placeholder="Selecione o status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {statusList.map((item) => (
+                        <SelectItem key={item.id} value={item.id}>
+                          {item.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <FieldError message={errors.status_imovel_id?.message} />
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -367,32 +437,33 @@ export function ImovelForm({ mode = "create", imovel }: ImovelFormProps) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Controller
-            control={control}
-            name="cep"
-            render={({ field }) => (
-              <CepInput
-                value={field.value}
-                onChange={field.onChange}
-                onAddressFound={(address) => {
-                  setValue("logradouro", address.logradouro, { shouldValidate: true });
-                  setValue("bairro", address.bairro, { shouldValidate: true });
-                  setValue("cidade", address.cidade, { shouldValidate: true });
-                  setValue("estado", address.estado, { shouldValidate: true });
-                }}
-                error={errors.cep?.message}
-                disabled={isPending}
+          <div className="grid gap-4 grid-cols-12">
+            <div className="col-span-12 sm:col-span-2">
+              <Controller
+                control={control}
+                name="cep"
+                render={({ field }) => (
+                  <CepInput
+                    value={field.value}
+                    onChange={field.onChange}
+                    onAddressFound={(address) => {
+                      setValue("logradouro", address.logradouro, { shouldValidate: true });
+                      setValue("bairro", address.bairro, { shouldValidate: true });
+                      setValue("cidade", address.cidade, { shouldValidate: true });
+                      setValue("estado", address.estado, { shouldValidate: true });
+                    }}
+                    error={errors.cep?.message}
+                    disabled={isPending}
+                  />
+                )}
               />
-            )}
-          />
-
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="space-y-2 sm:col-span-2">
+            </div>
+            <div className="col-span-12 space-y-2 sm:col-span-7">
               <Label htmlFor="logradouro">Logradouro</Label>
               <Input id="logradouro" aria-invalid={Boolean(errors.logradouro)} {...register("logradouro")} />
               <FieldError message={errors.logradouro?.message} />
             </div>
-            <div className="space-y-2">
+            <div className="col-span-6 space-y-2 sm:col-span-3">
               <Label htmlFor="numero">Número</Label>
               <Input id="numero" aria-invalid={Boolean(errors.numero)} {...register("numero")} />
               <FieldError message={errors.numero?.message} />
@@ -438,18 +509,18 @@ export function ImovelForm({ mode = "create", imovel }: ImovelFormProps) {
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="space-y-2">
+          <div className="grid gap-4 grid-cols-12">
+            <div className="col-span-12 space-y-2 sm:col-span-4">
               <Label htmlFor="bairro">Bairro</Label>
               <Input id="bairro" aria-invalid={Boolean(errors.bairro)} {...register("bairro")} />
               <FieldError message={errors.bairro?.message} />
             </div>
-            <div className="space-y-2">
+            <div className="col-span-12 space-y-2 sm:col-span-6">
               <Label htmlFor="cidade">Cidade</Label>
               <Input id="cidade" aria-invalid={Boolean(errors.cidade)} {...register("cidade")} />
               <FieldError message={errors.cidade?.message} />
             </div>
-            <div className="space-y-2">
+            <div className="col-span-12 space-y-2 sm:col-span-2">
               <Label>Estado (UF)</Label>
               <Controller
                 control={control}
@@ -493,21 +564,67 @@ export function ImovelForm({ mode = "create", imovel }: ImovelFormProps) {
                 </div>
 
                 {portalDiferente ? (
-                  <div className="grid gap-4 sm:grid-cols-3">
-                    <div className="space-y-2 sm:col-span-2">
-                      <Label htmlFor="portal_logradouro">Logradouro para portais</Label>
-                      <Input id="portal_logradouro" {...register("portal_logradouro")} />
-                      <FieldError message={errors.portal_logradouro?.message} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="portal_numero">Número</Label>
-                      <Input id="portal_numero" {...register("portal_numero")} />
-                      <FieldError message={errors.portal_numero?.message} />
-                    </div>
-                    <div className="space-y-2 sm:col-span-3">
-                      <Label htmlFor="portal_bairro">Bairro para portais</Label>
-                      <Input id="portal_bairro" {...register("portal_bairro")} />
-                      <FieldError message={errors.portal_bairro?.message} />
+                  <div className="space-y-4">
+                    <Controller
+                      control={control}
+                      name="portal_cep"
+                      render={({ field }) => (
+                        <CepInput
+                          id="portal_cep"
+                          value={field.value ?? ""}
+                          onChange={field.onChange}
+                          onAddressFound={(address) => {
+                            setValue("portal_logradouro", address.logradouro, { shouldValidate: true });
+                            setValue("portal_bairro", address.bairro, { shouldValidate: true });
+                            setValue("portal_cidade", address.cidade, { shouldValidate: true });
+                            setValue("portal_estado", address.estado, { shouldValidate: true });
+                          }}
+                          error={errors.portal_cep?.message}
+                          disabled={isPending}
+                        />
+                      )}
+                    />
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      <div className="space-y-2 sm:col-span-2">
+                        <Label htmlFor="portal_logradouro">Logradouro para portais *</Label>
+                        <Input id="portal_logradouro" {...register("portal_logradouro")} />
+                        <FieldError message={errors.portal_logradouro?.message} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="portal_numero">Número *</Label>
+                        <Input id="portal_numero" {...register("portal_numero")} />
+                        <FieldError message={errors.portal_numero?.message} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="portal_bairro">Bairro *</Label>
+                        <Input id="portal_bairro" {...register("portal_bairro")} />
+                        <FieldError message={errors.portal_bairro?.message} />
+                      </div>
+                      <div className="space-y-2 sm:col-span-2">
+                        <Label htmlFor="portal_cidade">Cidade *</Label>
+                        <Input id="portal_cidade" {...register("portal_cidade")} />
+                        <FieldError message={errors.portal_cidade?.message} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Estado *</Label>
+                        <Controller
+                          control={control}
+                          name="portal_estado"
+                          render={({ field }) => (
+                            <Select value={field.value || undefined} onValueChange={field.onChange}>
+                              <SelectTrigger>
+                                <SelectValue placeholder="UF" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {ESTADOS_BR.map((uf) => (
+                                  <SelectItem key={uf} value={uf}>{uf}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        />
+                        <FieldError message={errors.portal_estado?.message} />
+                      </div>
                     </div>
                   </div>
                 ) : null}
@@ -517,12 +634,13 @@ export function ImovelForm({ mode = "create", imovel }: ImovelFormProps) {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="latitude">Latitude (opcional)</Label>
-              <Input id="latitude" type="number" step="any" {...register("latitude")} />
+              <Label htmlFor="latitude">Latitude</Label>
+              <Input id="latitude" type="number" step="any" readOnly className="bg-muted" {...register("latitude")} />
+              <p className="text-xs text-muted-foreground">Preenchida automaticamente pelo endereço</p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="longitude">Longitude (opcional)</Label>
-              <Input id="longitude" type="number" step="any" {...register("longitude")} />
+              <Label htmlFor="longitude">Longitude</Label>
+              <Input id="longitude" type="number" step="any" readOnly className="bg-muted" {...register("longitude")} />
             </div>
           </div>
         </CardContent>
@@ -600,7 +718,7 @@ export function ImovelForm({ mode = "create", imovel }: ImovelFormProps) {
           <CardDescription>Áreas e composição do imóvel.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 grid-cols-2 sm:grid-cols-4">
             <div className="space-y-2">
               <Label htmlFor="area_util">Área útil (m²)</Label>
               <Input id="area_util" type="number" min={0} step="0.01" {...register("area_util")} />
@@ -613,16 +731,19 @@ export function ImovelForm({ mode = "create", imovel }: ImovelFormProps) {
               <Label htmlFor="ano_construcao">Ano de construção</Label>
               <Input id="ano_construcao" type="number" min={1800} step={1} {...register("ano_construcao")} />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="elevadores">Elevadores</Label>
+              <Input id="elevadores" type="number" min={0} step={1} {...register("elevadores")} />
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="grid gap-4 grid-cols-2 sm:grid-cols-5">
             {(
               [
                 ["quartos", "Quartos"],
                 ["suites", "Suítes"],
-                ["salas", "Salas"],
                 ["banheiros", "Banheiros"],
-                ["elevadores", "Elevadores"],
+                ["salas", "Salas"],
                 ["vagas", "Vagas"],
               ] as const
             ).map(([name, label]) => (
@@ -679,65 +800,86 @@ export function ImovelForm({ mode = "create", imovel }: ImovelFormProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           {finalidade === "venda" ? (
-            <div className="space-y-2">
-              <Label htmlFor="valor_venda">Valor de venda (R$)</Label>
-              <Controller
-                control={control}
-                name="valor_venda"
-                render={({ field }) => (
-                  <CurrencyInput
-                    id="valor_venda"
-                    value={field.value}
-                    onChange={field.onChange}
-                    aria-invalid={Boolean(errors.valor_venda)}
-                    disabled={isPending}
-                  />
-                )}
-              />
-              <FieldError message={errors.valor_venda?.message} />
+            <div className="grid gap-4 grid-cols-12">
+              <div className="col-span-12 space-y-2 sm:col-span-5">
+                <Label htmlFor="valor_venda">Valor de venda (R$)</Label>
+                <Controller
+                  control={control}
+                  name="valor_venda"
+                  render={({ field }) => (
+                    <CurrencyInput
+                      id="valor_venda"
+                      value={field.value}
+                      onChange={field.onChange}
+                      aria-invalid={Boolean(errors.valor_venda)}
+                      disabled={isPending}
+                    />
+                  )}
+                />
+                <FieldError message={errors.valor_venda?.message} />
+              </div>
+              <div className="col-span-6 space-y-2 sm:col-span-4">
+                <Label htmlFor="valor_condominio">Condomínio (R$)</Label>
+                <Controller
+                  control={control}
+                  name="valor_condominio"
+                  render={({ field }) => (
+                    <CurrencyInput id="valor_condominio" value={field.value} onChange={field.onChange} disabled={isPending} />
+                  )}
+                />
+              </div>
+              <div className="col-span-6 space-y-2 sm:col-span-3">
+                <Label htmlFor="valor_iptu">IPTU (R$)</Label>
+                <Controller
+                  control={control}
+                  name="valor_iptu"
+                  render={({ field }) => (
+                    <CurrencyInput id="valor_iptu" value={field.value} onChange={field.onChange} disabled={isPending} />
+                  )}
+                />
+              </div>
             </div>
           ) : (
-            <div className="space-y-2">
-              <Label htmlFor="valor_locacao">Valor de locação (R$)</Label>
-              <Controller
-                control={control}
-                name="valor_locacao"
-                render={({ field }) => (
-                  <CurrencyInput
-                    id="valor_locacao"
-                    value={field.value}
-                    onChange={field.onChange}
-                    aria-invalid={Boolean(errors.valor_locacao)}
-                    disabled={isPending}
-                  />
-                )}
-              />
-              <FieldError message={errors.valor_locacao?.message} />
+            <div className="grid gap-4 grid-cols-12">
+              <div className="col-span-12 space-y-2 sm:col-span-5">
+                <Label htmlFor="valor_locacao">Valor de locação (R$)</Label>
+                <Controller
+                  control={control}
+                  name="valor_locacao"
+                  render={({ field }) => (
+                    <CurrencyInput
+                      id="valor_locacao"
+                      value={field.value}
+                      onChange={field.onChange}
+                      aria-invalid={Boolean(errors.valor_locacao)}
+                      disabled={isPending}
+                    />
+                  )}
+                />
+                <FieldError message={errors.valor_locacao?.message} />
+              </div>
+              <div className="col-span-6 space-y-2 sm:col-span-4">
+                <Label htmlFor="valor_condominio">Condomínio (R$)</Label>
+                <Controller
+                  control={control}
+                  name="valor_condominio"
+                  render={({ field }) => (
+                    <CurrencyInput id="valor_condominio" value={field.value} onChange={field.onChange} disabled={isPending} />
+                  )}
+                />
+              </div>
+              <div className="col-span-6 space-y-2 sm:col-span-3">
+                <Label htmlFor="valor_iptu">IPTU (R$)</Label>
+                <Controller
+                  control={control}
+                  name="valor_iptu"
+                  render={({ field }) => (
+                    <CurrencyInput id="valor_iptu" value={field.value} onChange={field.onChange} disabled={isPending} />
+                  )}
+                />
+              </div>
             </div>
           )}
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="valor_condominio">Condomínio (R$)</Label>
-              <Controller
-                control={control}
-                name="valor_condominio"
-                render={({ field }) => (
-                  <CurrencyInput id="valor_condominio" value={field.value} onChange={field.onChange} disabled={isPending} />
-                )}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="valor_iptu">IPTU (R$)</Label>
-              <Controller
-                control={control}
-                name="valor_iptu"
-                render={({ field }) => (
-                  <CurrencyInput id="valor_iptu" value={field.value} onChange={field.onChange} disabled={isPending} />
-                )}
-              />
-            </div>
-          </div>
         </CardContent>
       </Card>
 
@@ -790,18 +932,48 @@ export function ImovelForm({ mode = "create", imovel }: ImovelFormProps) {
             <Input id="video_url" type="url" {...register("video_url")} />
             <FieldError message={errors.video_url?.message} />
           </div>
+        </CardContent>
+      </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Publicação</CardTitle>
+          <CardDescription>
+            Controle onde o imóvel será exibido.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
           <Controller
             control={control}
             name="publicado_site"
             render={({ field }) => (
-              <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3">
-                <Checkbox
+              <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-4 py-3">
+                <Label htmlFor="publicado_site" className="cursor-pointer">
+                  Publicar no site
+                </Label>
+                <Switch
                   id="publicado_site"
                   checked={field.value}
-                  onCheckedChange={(checked) => field.onChange(checked === true)}
+                  onCheckedChange={field.onChange}
+                  disabled={isPending}
                 />
-                <Label htmlFor="publicado_site" className="cursor-pointer">Publicar no site</Label>
+              </div>
+            )}
+          />
+          <Controller
+            control={control}
+            name="publicado_portais"
+            render={({ field }) => (
+              <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-4 py-3">
+                <Label htmlFor="publicado_portais" className="cursor-pointer">
+                  Publicar nos portais
+                </Label>
+                <Switch
+                  id="publicado_portais"
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                  disabled={isPending}
+                />
               </div>
             )}
           />
