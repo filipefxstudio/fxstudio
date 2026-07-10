@@ -230,7 +230,7 @@ export function FotoUpload({ fotos, onChange, disabled }: FotoUploadProps) {
               <ul
                 ref={provided.innerRef}
                 {...provided.droppableProps}
-                className="grid grid-cols-2 gap-4 lg:grid-cols-4"
+                className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3"
               >
                 {fotos.map((foto, index) => (
                   <Draggable key={foto.id} draggableId={foto.id} index={index}>
@@ -247,7 +247,7 @@ export function FotoUpload({ fotos, onChange, disabled }: FotoUploadProps) {
                             snapshot.isDragging && "shadow-md",
                           )}
                         >
-                          <div className="relative aspect-[4/3] overflow-hidden rounded-lg bg-muted">
+                          <div className="relative h-[90px] overflow-hidden rounded-lg bg-muted">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
                               src={foto.previewUrl}

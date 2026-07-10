@@ -5,8 +5,10 @@ import { ArrowLeft } from "lucide-react";
 
 import { ImovelForm } from "@/components/imoveis/ImovelForm";
 import { Button } from "@/components/ui/button";
+import { getPerfisEquipe } from "@/lib/actions/configuracoes";
 import { getStatusImovelList } from "@/lib/actions/imoveis";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
+import { getPerfilForUser } from "@/lib/supabase/get-perfil";
 
 export const metadata: Metadata = {
   title: "Novo imóvel | FX Studio",
@@ -20,7 +22,11 @@ export default async function NovoImovelPage() {
     redirect("/login");
   }
 
-  const statusList = await getStatusImovelList(corretor.id);
+  const [statusList, perfis, perfilAtual] = await Promise.all([
+    getStatusImovelList(corretor.id),
+    getPerfisEquipe(),
+    getPerfilForUser(),
+  ]);
 
   return (
     <div className="flex-1 space-y-6 p-4 md:p-6">
@@ -39,7 +45,11 @@ export default async function NovoImovelPage() {
           </div>
         </div>
 
-      <ImovelForm statusList={statusList} />
+      <ImovelForm
+        statusList={statusList}
+        perfis={perfis}
+        perfilAtualId={perfilAtual?.id ?? null}
+      />
     </div>
   );
 }

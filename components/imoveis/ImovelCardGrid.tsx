@@ -24,6 +24,14 @@ import {
 } from "@/lib/site/format";
 import type { Imovel, StatusImovel } from "@/types";
 
+function formatCaptadorLinha(imovel: Imovel, codigo: string): string {
+  const captador = imovel.captador?.nome;
+  if (captador) {
+    return `${codigo} • ${captador}`;
+  }
+  return codigo;
+}
+
 interface ImovelCardItemProps {
   imovel: Imovel;
   corretorSlug: string;
@@ -68,12 +76,14 @@ function ImovelCardItem({ imovel, corretorSlug, statusList }: ImovelCardItemProp
             {getTipoLabel(imovel.tipo)} • {getFinalidadeLabel(imovel.finalidade)}
           </p>
 
-          <div>
-            <p className="text-base font-bold text-foreground">{imovel.bairro ?? "—"}</p>
+          <div className="min-w-0">
+            <p className="truncate text-base font-bold text-foreground">{imovel.bairro ?? "—"}</p>
             <p className="mt-0.5 text-sm text-muted-foreground">
               {formatEnderecoCurto(imovel)}
             </p>
           </div>
+
+          <p className="text-xl font-black text-primary">{valorFormatado}</p>
 
           <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
             {imovel.area_util ? (
@@ -104,16 +114,16 @@ function ImovelCardItem({ imovel, corretorSlug, statusList }: ImovelCardItemProp
         </div>
       </Link>
 
-      <div className="flex items-center justify-between gap-2 px-4 pb-4">
-        <Link href={`/dashboard/imoveis/${imovel.id}`} className="min-w-0">
-          <p className="text-xl font-black text-primary">{valorFormatado}</p>
-          <p className="text-xs text-muted-foreground">{codigo}</p>
-        </Link>
+      <div className="flex items-center justify-between gap-2 px-4 pb-4 pt-1">
+        <p className="min-w-0 truncate text-xs text-muted-foreground">
+          {formatCaptadorLinha(imovel, codigo)}
+        </p>
         <ImovelAcoesDropdown
           imovel={imovel}
           corretorSlug={corretorSlug}
           statusList={statusList}
           variant="card"
+          className="shrink-0"
         />
       </div>
     </article>

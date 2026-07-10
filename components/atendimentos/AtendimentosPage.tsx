@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { ArrowUpDown, MessageCircle, MoreVertical, Phone, Plus } from "lucide-react";
+import { ArrowUpDown, MessageCircle, MoreVertical, Phone, Plus, Trash2, UserCog } from "lucide-react";
 
+import { AtendimentoModals } from "@/components/atendimentos/AtendimentoModals";
 import { FunilKanban } from "@/components/dashboard/FunilKanban";
 import { LeadCardGrid } from "@/components/leads/LeadCardGrid";
 import { LeadCardList } from "@/components/leads/LeadCardList";
@@ -36,32 +37,33 @@ import {
 import { ETAPA_FUNIL_ORDEM } from "@/lib/leads/etapa-order";
 import { parseLeadObservacoes } from "@/lib/leads/observacoes";
 import { getUltimaAtividadeEm, isLeadAtivo } from "@/lib/leads/format";
-import {
-  buildTelLink,
-  buildWhatsAppLink,
-} from "@/lib/leads/format";
+import { buildTelLink, buildWhatsAppLink } from "@/lib/leads/format";
 import { marcarContatoFeito, qualificarLead } from "@/lib/actions/atendimentos";
 import { toast } from "@/hooks/use-toast";
-import type { Lead, MidiaOrigem } from "@/types";
+import { contemNormalizado } from "@/lib/utils/normalizar";
+import type { Lead, MidiaOrigem, MotivoDescarte } from "@/types";
 
 interface AtendimentosPageProps {
   initialLeads: Lead[];
   corretorId: string;
   midias: MidiaOrigem[];
   perfis: { id: string; nome: string }[];
+  motivos: MotivoDescarte[];
+  podeTransferir: boolean;
   initialFilters?: Partial<LeadsFilterState>;
+  initialBusca?: string;
 }
 
 function matchesSearch(lead: Lead, query: string): boolean {
   if (!query.trim()) return true;
 
-  const normalized = query.trim().toLowerCase();
   const digits = query.replace(/\D/g, "");
   const telefoneDigits = lead.telefone?.replace(/\D/g, "") ?? "";
 
   return (
-    (lead.nome?.toLowerCase().includes(normalized) ?? false) ||
-    (lead.telefone?.toLowerCase().includes(normalized) ?? false) ||
+    contemNormalizado(lead.nome, query) ||
+    contemNormalizado(lead.telefone, query) ||
+    contemNormalizado(lead.codigo_atendimento, query) ||
     (digits.length > 0 && telefoneDigits.includes(digits))
   );
 }
@@ -89,8 +91,8 @@ function matchesFilters(lead: Lead, filters: LeadsFilterState): boolean {
   }
 
   if (filters.perfilId !== "all") {
-    const { meta } = parseLeadObservacoes(lead.observacoes);
-    if (meta.perfil_id !== filters.perfilId) return false;
+    const leadPerfilId = lead.perfil_id ?? parseLeadObservacoes(lead.observacoes).meta.perfil_id;
+    if (leadPerfilId !== filters.perfilId) return false;
   }
 
   if (filters.semInteracaoDias !== null) {
@@ -134,11 +136,14 @@ export function AtendimentosPage({
   corretorId,
   midias,
   perfis,
+  motivos,
+  podeTransferir,
   initialFilters,
+  initialBusca = "",
 }: AtendimentosPageProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialBusca);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [viewMode, setViewMode] = useState<LeadsViewMode>("kanban");
   const [sortMode, setSortMode] = useState<AtendimentosSortMode>("recentes");
@@ -147,6 +152,17 @@ export function AtendimentosPage({
     ...initialFilters,
   });
   const [diasAlerta, setDiasAlerta] = useState(DEFAULT_DIAS_ALERTA_INATIVIDADE);
+  const [modalLead, setModalLead] = useState<Lead | null>(null);
+  const [descartarOpen, setDescartarOpen] = useState(false);
+  const [transferirOpen, setTransferirOpen] = useState(false);
+
+  const showResponsavel = perfis.length > 1;
+
+  useEffect(() => {
+    if (initialBusca) {
+      setSearch(initialBusca);
+    }
+  }, [initialBusca]);
 
   useEffect(() => {
     const storedView = localStorage.getItem(STORAGE_KEY_LEADS_VIEW);
@@ -211,6 +227,16 @@ export function AtendimentosPage({
     });
   }
 
+  function openDescartar(lead: Lead) {
+    setModalLead(lead);
+    setDescartarOpen(true);
+  }
+
+  function openTransferir(lead: Lead) {
+    setModalLead(lead);
+    setTransferirOpen(true);
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -268,37 +294,63 @@ export function AtendimentosPage({
       ) : null}
 
       {viewMode === "kanban" ? (
-        <FunilKanban
-          initialLeads={filteredLeads}
-          corretorId={corretorId}
-          hideHeader
-        />
+        <FunilKanban initialLeads={filteredLeads} corretorId={corretorId} hideHeader />
       ) : null}
 
       {viewMode === "grade" ? (
-        <LeadCardGrid leads={filteredLeads} basePath="/dashboard/atendimentos">
+        <LeadCardGrid
+          leads={filteredLeads}
+          basePath="/dashboard/atendimentos"
+          showResponsavel={showResponsavel}
+          perfis={perfis}
+        >
           {(lead) => (
             <AtendimentoCardActions
               lead={lead}
               disabled={isPending}
+              podeTransferir={podeTransferir}
               onContatoFeito={() => runCardAction(lead.id, () => marcarContatoFeito(lead.id))}
               onQualificar={() => runCardAction(lead.id, () => qualificarLead(lead.id))}
+              onDescartar={() => openDescartar(lead)}
+              onTransferir={() => openTransferir(lead)}
             />
           )}
         </LeadCardGrid>
       ) : null}
 
       {viewMode === "lista" ? (
-        <LeadCardList leads={filteredLeads} basePath="/dashboard/atendimentos">
+        <LeadCardList
+          leads={filteredLeads}
+          basePath="/dashboard/atendimentos"
+          showResponsavel={showResponsavel}
+          perfis={perfis}
+        >
           {(lead) => (
             <AtendimentoCardActions
               lead={lead}
               disabled={isPending}
+              podeTransferir={podeTransferir}
               onContatoFeito={() => runCardAction(lead.id, () => marcarContatoFeito(lead.id))}
               onQualificar={() => runCardAction(lead.id, () => qualificarLead(lead.id))}
+              onDescartar={() => openDescartar(lead)}
+              onTransferir={() => openTransferir(lead)}
             />
           )}
         </LeadCardList>
+      ) : null}
+
+      {modalLead ? (
+        <AtendimentoModals
+          leadId={modalLead.id}
+          leadNome={modalLead.nome}
+          perfis={perfis}
+          motivos={motivos}
+          podeTransferir={podeTransferir}
+          descartarOpen={descartarOpen}
+          transferirOpen={transferirOpen}
+          onDescartarOpenChange={setDescartarOpen}
+          onTransferirOpenChange={setTransferirOpen}
+        />
       ) : null}
     </div>
   );
@@ -307,13 +359,19 @@ export function AtendimentosPage({
 function AtendimentoCardActions({
   lead,
   disabled,
+  podeTransferir,
   onContatoFeito,
   onQualificar,
+  onDescartar,
+  onTransferir,
 }: {
   lead: Lead;
   disabled: boolean;
+  podeTransferir: boolean;
   onContatoFeito: () => void;
   onQualificar: () => void;
+  onDescartar: () => void;
+  onTransferir: () => void;
 }) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -403,6 +461,34 @@ function AtendimentoCardActions({
               }}
             >
               Qualificar
+            </button>
+            {podeTransferir ? (
+              <button
+                type="button"
+                className="flex w-full items-center gap-1 px-3 py-2 text-left text-xs hover:bg-muted"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setMenuOpen(false);
+                  onTransferir();
+                }}
+              >
+                <UserCog className="size-3.5" />
+                Transferir
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="flex w-full items-center gap-1 px-3 py-2 text-left text-xs text-[#E63946] hover:bg-muted"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setMenuOpen(false);
+                onDescartar();
+              }}
+            >
+              <Trash2 className="size-3.5" />
+              Descartar
             </button>
             <button
               type="button"

@@ -69,7 +69,34 @@ export function getUltimaAtividadeEm(lead: Lead): string {
 }
 
 export function isLeadAtivo(lead: Lead): boolean {
+  if (lead.situacao === "descartado" || lead.situacao === "negocio_fechado") {
+    return false;
+  }
   return lead.etapa !== "fechado" && lead.etapa !== "perdido";
+}
+
+export function getLeadResponsavelId(lead: Lead): string | null {
+  if (lead.perfil_id) return lead.perfil_id;
+  return null;
+}
+
+export function formatTempoPrimeiraResposta(minutes: number | null | undefined): string {
+  if (minutes == null) {
+    return "—";
+  }
+
+  const horas = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+
+  if (horas > 0 && mins > 0) {
+    return `${horas}h e ${mins}min`;
+  }
+
+  if (horas > 0) {
+    return `${horas}h`;
+  }
+
+  return `${mins}min`;
 }
 
 export function formatOrigemDisplay(origem: string): string {

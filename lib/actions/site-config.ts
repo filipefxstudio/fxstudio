@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import {
   DEFAULT_SITE_COR_PRIMARIA,
   DEFAULT_SITE_COR_SECUNDARIA,
+  DEFAULT_SITE_TARJA_COR,
   STORAGE_BUCKET_SITE_ASSETS,
 } from "@/lib/constants/site";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
@@ -21,18 +22,32 @@ export type SiteConfigActionResult = {
 export type SaveIdentidadeVisualInput = {
   site_cor_primaria: string;
   site_cor_secundaria: string;
+  site_tarja_cor: string;
+};
+
+export type SaveHeroPageInput = {
+  hero_titulo: string;
+  hero_subtitulo: string;
 };
 
 export type SaveSobreInput = {
-  sobre_titulo: string;
-  sobre_texto: string;
+  site_sobre_titulo: string;
+  site_sobre_texto: string;
 };
 
 export type SaveContatoInput = {
-  contato_email: string;
-  contato_telefone: string;
-  contato_endereco: string;
-  contato_horario: string;
+  site_nome_exibicao: string;
+  site_creci: string;
+  site_telefone_vendas: string;
+  site_telefone_locacao: string;
+  site_email: string;
+  site_instagram: string;
+  site_youtube: string;
+  site_tiktok: string;
+  site_linkedin: string;
+  site_facebook: string;
+  site_horario: string;
+  site_endereco: string;
 };
 
 export type SaveSiteDominioInput = {
@@ -102,8 +117,9 @@ export async function saveIdentidadeVisual(
 
   const primaria = data.site_cor_primaria.trim() || DEFAULT_SITE_COR_PRIMARIA;
   const secundaria = data.site_cor_secundaria.trim() || DEFAULT_SITE_COR_SECUNDARIA;
+  const tarja = data.site_tarja_cor.trim() || DEFAULT_SITE_TARJA_COR;
 
-  if (!isValidHexColor(primaria) || !isValidHexColor(secundaria)) {
+  if (!isValidHexColor(primaria) || !isValidHexColor(secundaria) || !isValidHexColor(tarja)) {
     return { error: "Informe cores válidas no formato #RRGGBB." };
   }
 
@@ -113,6 +129,7 @@ export async function saveIdentidadeVisual(
     .update({
       site_cor_primaria: primaria,
       site_cor_secundaria: secundaria,
+      site_tarja_cor: tarja,
     })
     .eq("id", corretor.id);
 
@@ -155,6 +172,31 @@ export async function uploadLogo(formData: FormData): Promise<SiteConfigActionRe
   revalidatePath("/dashboard");
 
   return { success: true, url: uploadResult.url, message: "Logo enviada." };
+}
+
+export async function uploadFavicon(formData: FormData): Promise<SiteConfigActionResult> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) {
+    return { error: "Sessão expirada. Faça login novamente." };
+  }
+
+  const uploadResult = await uploadSiteAsset(formData, "favicon", "favicon");
+  if (uploadResult.error || !uploadResult.url) {
+    return uploadResult;
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("corretores")
+    .update({ site_favicon_url: uploadResult.url })
+    .eq("id", corretor.id);
+
+  if (error) {
+    return { error: "Não foi possível salvar o favicon." };
+  }
+
+  revalidatePath("/dashboard/configuracoes");
+  return { success: true, url: uploadResult.url, message: "Favicon enviado." };
 }
 
 export async function uploadHero(formData: FormData): Promise<SiteConfigActionResult> {
@@ -213,6 +255,33 @@ export async function removeHero(): Promise<SiteConfigActionResult> {
   return { success: true, message: "Imagem do hero removida." };
 }
 
+export async function saveHeroPage(data: SaveHeroPageInput): Promise<SiteConfigActionResult> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) {
+    return { error: "Sessão expirada. Faça login novamente." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("corretores")
+    .update({
+      hero_titulo: data.hero_titulo.trim() || null,
+      hero_subtitulo: data.hero_subtitulo.trim() || null,
+    })
+    .eq("id", corretor.id);
+
+  if (error) {
+    return { error: "Não foi possível salvar a página inicial." };
+  }
+
+  revalidatePath("/dashboard/configuracoes");
+  if (corretor.slug) {
+    revalidatePath(`/${corretor.slug}`);
+  }
+
+  return { success: true, message: "Página inicial salva." };
+}
+
 export async function uploadSobreFoto(formData: FormData): Promise<SiteConfigActionResult> {
   const corretor = await getCorretorForUser();
 
@@ -229,7 +298,7 @@ export async function uploadSobreFoto(formData: FormData): Promise<SiteConfigAct
   const supabase = await createClient();
   const { error } = await supabase
     .from("corretores")
-    .update({ sobre_foto_url: uploadResult.url })
+    .update({ site_sobre_foto_url: uploadResult.url })
     .eq("id", corretor.id);
 
   if (error) {
@@ -255,8 +324,8 @@ export async function saveSobrePage(data: SaveSobreInput): Promise<SiteConfigAct
   const { error } = await supabase
     .from("corretores")
     .update({
-      sobre_titulo: data.sobre_titulo.trim() || null,
-      sobre_texto: data.sobre_texto.trim() || null,
+      site_sobre_titulo: data.site_sobre_titulo.trim() || null,
+      site_sobre_texto: data.site_sobre_texto.trim() || null,
     })
     .eq("id", corretor.id);
 
@@ -283,10 +352,18 @@ export async function saveContatoPage(data: SaveContatoInput): Promise<SiteConfi
   const { error } = await supabase
     .from("corretores")
     .update({
-      contato_email: data.contato_email.trim() || null,
-      contato_telefone: data.contato_telefone.trim() || null,
-      contato_endereco: data.contato_endereco.trim() || null,
-      contato_horario: data.contato_horario.trim() || null,
+      site_nome_exibicao: data.site_nome_exibicao.trim() || null,
+      site_creci: data.site_creci.trim() || null,
+      site_telefone_vendas: data.site_telefone_vendas.trim() || null,
+      site_telefone_locacao: data.site_telefone_locacao.trim() || null,
+      site_email: data.site_email.trim() || null,
+      site_instagram: data.site_instagram.trim() || null,
+      site_youtube: data.site_youtube.trim() || null,
+      site_tiktok: data.site_tiktok.trim() || null,
+      site_linkedin: data.site_linkedin.trim() || null,
+      site_facebook: data.site_facebook.trim() || null,
+      site_horario: data.site_horario.trim() || null,
+      site_endereco: data.site_endereco.trim() || null,
     })
     .eq("id", corretor.id);
 

@@ -24,6 +24,7 @@ import {
 } from "@/lib/constants/config";
 import { parseLeadObservacoes } from "@/lib/leads/observacoes";
 import { getUltimaAtividadeEm, isLeadAtivo } from "@/lib/leads/format";
+import { contemNormalizado } from "@/lib/utils/normalizar";
 import type { Lead, MidiaOrigem } from "@/types";
 
 interface LeadsPageProps {
@@ -37,13 +38,12 @@ interface LeadsPageProps {
 function matchesSearch(lead: Lead, query: string): boolean {
   if (!query.trim()) return true;
 
-  const normalized = query.trim().toLowerCase();
   const digits = query.replace(/\D/g, "");
   const telefoneDigits = lead.telefone?.replace(/\D/g, "") ?? "";
 
   return (
-    (lead.nome?.toLowerCase().includes(normalized) ?? false) ||
-    (lead.telefone?.toLowerCase().includes(normalized) ?? false) ||
+    contemNormalizado(lead.nome, query) ||
+    contemNormalizado(lead.telefone, query) ||
     (digits.length > 0 && telefoneDigits.includes(digits))
   );
 }

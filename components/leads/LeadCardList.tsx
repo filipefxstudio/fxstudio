@@ -18,6 +18,8 @@ import type { Lead } from "@/types";
 interface LeadCardListProps {
   leads: Lead[];
   basePath?: string;
+  showResponsavel?: boolean;
+  perfis?: { id: string; nome: string }[];
   renderActions?: (lead: Lead) => ReactNode;
   children?: (lead: Lead) => ReactNode;
 }
@@ -25,6 +27,8 @@ interface LeadCardListProps {
 export function LeadCardList({
   leads,
   basePath = "/dashboard/atendimentos",
+  showResponsavel = false,
+  perfis = [],
   renderActions,
   children,
 }: LeadCardListProps) {
@@ -44,6 +48,10 @@ export function LeadCardList({
           const waLink = buildWhatsAppLink(lead.telefone);
           const href = `${basePath}/${lead.id}`;
           const actions = renderActions?.(lead) ?? children?.(lead);
+          const responsavelNome =
+            lead.perfil?.nome ??
+            perfis.find((p) => p.id === lead.perfil_id)?.nome ??
+            null;
 
           return (
             <Link
@@ -53,6 +61,11 @@ export function LeadCardList({
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
+                  {lead.codigo_atendimento ? (
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {lead.codigo_atendimento}
+                    </span>
+                  ) : null}
                   <span className="font-semibold text-primary">
                     {lead.nome?.trim() || "Atendimento sem nome"}
                   </span>
@@ -61,6 +74,11 @@ export function LeadCardList({
                 <p className="mt-1 text-sm text-muted-foreground">
                   {formatTelefoneLead(lead.telefone)} · {getInteresseResumido(lead)}
                 </p>
+                {showResponsavel && responsavelNome ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Responsável: <span className="font-medium">{responsavelNome}</span>
+                  </p>
+                ) : null}
                 <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
                   <span>{ETAPA_LEAD_LABELS[lead.etapa]}</span>
                   <span>·</span>

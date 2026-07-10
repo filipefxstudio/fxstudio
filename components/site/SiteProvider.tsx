@@ -11,6 +11,8 @@ interface SiteContextValue {
   basePath: string;
   link: (path: string) => string;
   hasImoveisLocacao: boolean;
+  whatsappChatEnabled: boolean;
+  hasTarja: boolean;
 }
 
 const SiteContext = createContext<SiteContextValue | null>(null);
@@ -19,6 +21,8 @@ interface SiteProviderProps {
   corretor: Corretor;
   basePath: string;
   hasImoveisLocacao?: boolean;
+  whatsappChatEnabled?: boolean;
+  hasTarja?: boolean;
   children: React.ReactNode;
 }
 
@@ -26,12 +30,16 @@ export function SiteProvider({
   corretor,
   basePath,
   hasImoveisLocacao = false,
+  whatsappChatEnabled = false,
+  hasTarja = false,
   children,
 }: SiteProviderProps) {
   const value: SiteContextValue = {
     corretor,
     basePath,
     hasImoveisLocacao,
+    whatsappChatEnabled,
+    hasTarja,
     link: (path: string) => sitePath(basePath, path),
   };
 

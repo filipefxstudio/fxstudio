@@ -14,13 +14,12 @@ import type { ReactNode } from "react";
 
 const TAB_ITEMS = [
   { id: "dados", label: "Dados" },
-  { id: "indicados", label: "Indicados" },
+  { id: "radar", label: "Radar de imóveis" },
   { id: "selecionados", label: "Selecionados" },
   { id: "visitas", label: "Visitas" },
   { id: "propostas", label: "Propostas" },
-  { id: "negocio", label: "Negócio" },
+  { id: "negocio", label: "Negócio fechado" },
   { id: "auditoria", label: "Auditoria" },
-  { id: "documentos", label: "Documentos" },
 ] as const;
 
 export type AtendimentoTabId = (typeof TAB_ITEMS)[number]["id"];
@@ -33,8 +32,7 @@ export function AtendimentoTabs({ panels }: AtendimentoTabsProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
-  const activeTab =
-    TAB_ITEMS.find((t) => t.id === tabParam)?.id ?? "dados";
+  const activeTab = TAB_ITEMS.find((t) => t.id === tabParam)?.id ?? "dados";
 
   function setTab(tab: AtendimentoTabId) {
     const params = new URLSearchParams(searchParams.toString());

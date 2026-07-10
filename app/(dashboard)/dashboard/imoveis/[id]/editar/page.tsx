@@ -5,8 +5,10 @@ import { ArrowLeft } from "lucide-react";
 
 import { ImovelForm } from "@/components/imoveis/ImovelForm";
 import { Button } from "@/components/ui/button";
+import { getPerfisEquipe } from "@/lib/actions/configuracoes";
 import { getImovelById, getStatusImovelList } from "@/lib/actions/imoveis";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
+import { getPerfilForUser } from "@/lib/supabase/get-perfil";
 
 interface EditarImovelPageProps {
   params: Promise<{ id: string }>;
@@ -32,9 +34,11 @@ export default async function EditarImovelPage({ params }: EditarImovelPageProps
   }
 
   const { id } = await params;
-  const [imovel, statusList] = await Promise.all([
+  const [imovel, statusList, perfis, perfilAtual] = await Promise.all([
     getImovelById(id),
     getStatusImovelList(corretor.id),
+    getPerfisEquipe(),
+    getPerfilForUser(),
   ]);
 
   if (!imovel) {
@@ -58,7 +62,13 @@ export default async function EditarImovelPage({ params }: EditarImovelPageProps
         </div>
       </div>
 
-      <ImovelForm mode="edit" imovel={imovel} statusList={statusList} />
+      <ImovelForm
+        mode="edit"
+        imovel={imovel}
+        statusList={statusList}
+        perfis={perfis}
+        perfilAtualId={perfilAtual?.id ?? null}
+      />
     </div>
   );
 }

@@ -13,18 +13,15 @@ import {
 import {
   Building2,
   Calendar,
-  ExternalLink,
   LayoutDashboard,
   Menu,
   Settings,
   User,
-  UserRound,
   Users,
   X,
 } from "lucide-react";
 
 import { AppHeader } from "@/components/dashboard/AppHeader";
-import { LogoutButton } from "@/components/auth/logout-button";
 import {
   Tooltip,
   TooltipContent,
@@ -92,7 +89,7 @@ export function DashboardShell({ nome, slug, logoUrl, children }: DashboardShell
       <TooltipProvider delayDuration={0}>
         <div className="min-h-screen bg-background">
           <AppHeader nome={nome} slug={slug} logoUrl={logoUrl} />
-          <SidebarPanel nome={nome} slug={slug} />
+          <SidebarPanel />
           <div
             className={cn(
               "flex min-h-screen flex-col pt-10 transition-[margin] duration-200 ease-in-out",
@@ -105,11 +102,6 @@ export function DashboardShell({ nome, slug, logoUrl, children }: DashboardShell
       </TooltipProvider>
     </SidebarContext.Provider>
   );
-}
-
-interface SidebarPanelProps {
-  nome: string;
-  slug: string;
 }
 
 function SidebarNavLink({
@@ -157,13 +149,11 @@ function SidebarNavLink({
 }
 
 interface SidebarContentProps {
-  nome: string;
-  slug: string;
   collapsed: boolean;
   onNavigate?: () => void;
 }
 
-function SidebarContent({ nome, slug, collapsed, onNavigate }: SidebarContentProps) {
+function SidebarContent({ collapsed, onNavigate }: SidebarContentProps) {
   const pathname = usePathname();
 
   return (
@@ -206,69 +196,11 @@ function SidebarContent({ nome, slug, collapsed, onNavigate }: SidebarContentPro
           );
         })}
       </nav>
-
-      <div className="shrink-0 border-t border-white/10 p-3">
-        <div
-          className={cn(
-            "flex items-center rounded-lg py-2",
-            collapsed ? "justify-center px-0" : "gap-3 px-2",
-          )}
-        >
-          {collapsed ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/15 text-white">
-                  <UserRound className="size-4" />
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="right">{nome}</TooltipContent>
-            </Tooltip>
-          ) : (
-            <>
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/15 text-white">
-                <UserRound className="size-4" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-white">{nome}</p>
-                {slug ? (
-                  <Link
-                    href={`/${slug}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-0.5 inline-flex items-center gap-1 text-xs text-white/70 transition-colors hover:text-white"
-                  >
-                    Ver meu site
-                    <ExternalLink className="size-3" />
-                  </Link>
-                ) : null}
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className={cn("mt-2", collapsed ? "flex justify-center px-0" : "px-2")}>
-          {collapsed ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div>
-                  <LogoutButton
-                    iconOnly
-                    className="text-white/70 hover:bg-white/10 hover:text-white"
-                  />
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="right">Sair</TooltipContent>
-            </Tooltip>
-          ) : (
-            <LogoutButton className="w-full justify-start text-white/70 hover:bg-white/10 hover:text-white" />
-          )}
-        </div>
-      </div>
     </>
   );
 }
 
-function SidebarPanel({ nome, slug }: SidebarPanelProps) {
+function SidebarPanel() {
   const pathname = usePathname();
   const { open, setOpen, collapsed } = useSidebarContext();
 
@@ -306,7 +238,7 @@ function SidebarPanel({ nome, slug }: SidebarPanelProps) {
           collapsed ? "w-[52px]" : "w-60",
         )}
       >
-        <SidebarContent nome={nome} slug={slug} collapsed={collapsed} />
+        <SidebarContent collapsed={collapsed} />
       </aside>
 
       {open ? (
@@ -326,12 +258,7 @@ function SidebarPanel({ nome, slug }: SidebarPanelProps) {
             >
               <X className="size-5" />
             </button>
-            <SidebarContent
-              nome={nome}
-              slug={slug}
-              collapsed={false}
-              onNavigate={close}
-            />
+            <SidebarContent collapsed={false} onNavigate={close} />
           </aside>
         </div>
       ) : null}

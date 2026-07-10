@@ -2,10 +2,14 @@ import type { Metadata } from "next";
 
 import { DashboardClient } from "@/components/dashboard/DashboardClient";
 import { DashboardGreeting } from "@/components/dashboard/DashboardGreeting";
+import { DashboardImoveisAprovacaoAlert } from "@/components/dashboard/DashboardImoveisAprovacaoAlert";
 import { OnboardingBanner } from "@/components/dashboard/OnboardingBanner";
 import { getDashboardDataBothTabs } from "@/lib/actions/dashboard";
+import { countImoveisAguardandoAprovacao } from "@/lib/actions/imovel-desempenho";
 import { getOnboardingItems } from "@/lib/mock/dashboard";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
+import { getPerfilForUser } from "@/lib/supabase/get-perfil";
+import { podeAprovarImovel } from "@/lib/imoveis/aprovacao";
 
 export const metadata: Metadata = {
   title: "Dashboard | FX Studio",
@@ -30,6 +34,10 @@ export default async function DashboardPage() {
     periodPreset: INITIAL_PERIOD.preset,
   });
 
+  const perfil = await getPerfilForUser();
+  const imoveisAguardando =
+    podeAprovarImovel(perfil) ? await countImoveisAguardandoAprovacao() : 0;
+
   if (!venda || !locacao) {
     return (
       <div className="flex-1 space-y-6 p-4 md:p-6">
@@ -42,6 +50,7 @@ export default async function DashboardPage() {
   return (
     <div className="flex-1 space-y-6 p-4 md:p-6">
       <DashboardGreeting nome={nome} />
+      <DashboardImoveisAprovacaoAlert count={imoveisAguardando} />
       <OnboardingBanner items={onboardingItems} siteHref={siteHref} />
       <DashboardClient
         statsVenda={venda}

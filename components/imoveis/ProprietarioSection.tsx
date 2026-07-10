@@ -5,9 +5,15 @@ import { useCallback, useEffect, useState, useTransition } from "react";
 import { Controller, type Control, type UseFormSetValue } from "react-hook-form";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { searchClientes, type ClienteSearchResult } from "@/lib/actions/clientes";
 import { formatTelefoneBr } from "@/lib/imoveis/telefone";
 import { cn } from "@/lib/utils";
@@ -18,6 +24,7 @@ interface ProprietarioSectionProps {
   setValue: UseFormSetValue<ImovelFormValues>;
   clienteId: string | null | undefined;
   disabled?: boolean;
+  error?: string;
 }
 
 export function ProprietarioSection({
@@ -25,6 +32,7 @@ export function ProprietarioSection({
   setValue,
   clienteId,
   disabled,
+  error,
 }: ProprietarioSectionProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [results, setResults] = useState<ClienteSearchResult[]>([]);
@@ -266,16 +274,23 @@ export function ProprietarioSection({
             control={control}
             name="proprietario_novo.eh_construtor_investidor"
             render={({ field }) => (
-              <div className="flex items-center gap-3">
-                <Checkbox
-                  id="eh_construtor"
-                  checked={field.value ?? false}
-                  onCheckedChange={(checked) => field.onChange(checked === true)}
+              <div className="space-y-2">
+                <Label>É construtor ou investidor? *</Label>
+                <Select
+                  value={
+                    field.value === true ? "sim" : field.value === false ? "nao" : undefined
+                  }
+                  onValueChange={(value) => field.onChange(value === "sim")}
                   disabled={disabled}
-                />
-                <Label htmlFor="eh_construtor" className="cursor-pointer font-normal">
-                  É construtor ou investidor com múltiplos imóveis
-                </Label>
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sim">Sim</SelectItem>
+                    <SelectItem value="nao">Não</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             )}
           />
@@ -293,6 +308,11 @@ export function ProprietarioSection({
             Cancelar cadastro
           </Button>
         </div>
+      ) : null}
+      {error ? (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
       ) : null}
     </div>
   );

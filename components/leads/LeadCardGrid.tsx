@@ -18,6 +18,8 @@ import type { Lead } from "@/types";
 interface LeadCardGridProps {
   leads: Lead[];
   basePath?: string;
+  showResponsavel?: boolean;
+  perfis?: { id: string; nome: string }[];
   renderActions?: (lead: Lead) => ReactNode;
   children?: (lead: Lead) => ReactNode;
 }
@@ -25,6 +27,8 @@ interface LeadCardGridProps {
 export function LeadCardGrid({
   leads,
   basePath = "/dashboard/atendimentos",
+  showResponsavel = false,
+  perfis = [],
   renderActions,
   children,
 }: LeadCardGridProps) {
@@ -43,6 +47,8 @@ export function LeadCardGrid({
           key={lead.id}
           lead={lead}
           basePath={basePath}
+          showResponsavel={showResponsavel}
+          perfis={perfis}
           actions={renderActions?.(lead) ?? children?.(lead)}
         />
       ))}
@@ -53,15 +59,23 @@ export function LeadCardGrid({
 function LeadCardItem({
   lead,
   basePath,
+  showResponsavel,
+  perfis,
   actions,
 }: {
   lead: Lead;
   basePath: string;
+  showResponsavel?: boolean;
+  perfis: { id: string; nome: string }[];
   actions?: ReactNode;
 }) {
   const telLink = buildTelLink(lead.telefone);
   const waLink = buildWhatsAppLink(lead.telefone);
   const href = `${basePath}/${lead.id}`;
+  const responsavelNome =
+    lead.perfil?.nome ??
+    perfis.find((p) => p.id === lead.perfil_id)?.nome ??
+    null;
 
   return (
     <Link
@@ -70,12 +84,22 @@ function LeadCardItem({
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <p className="font-semibold text-primary">
-            {lead.nome?.trim() || "Atendimento sem nome"}
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            {lead.codigo_atendimento ? (
+              <span className="font-mono text-xs text-muted-foreground">{lead.codigo_atendimento}</span>
+            ) : null}
+            <p className="font-semibold text-primary">
+              {lead.nome?.trim() || "Atendimento sem nome"}
+            </p>
+          </div>
           <p className="mt-1 text-xs text-muted-foreground">
             {formatTelefoneLead(lead.telefone)}
           </p>
+          {showResponsavel && responsavelNome ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Responsável: <span className="font-medium text-foreground">{responsavelNome}</span>
+            </p>
+          ) : null}
         </div>
         <TemperaturaBadge temperatura={lead.temperatura} />
       </div>

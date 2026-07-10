@@ -3,10 +3,12 @@ import { redirect } from "next/navigation";
 
 import { ConfiguracoesTabs } from "@/components/configuracoes/ConfiguracoesTabs";
 import { getAgenteConfig } from "@/lib/actions/agente-config";
+import { getAtendimentoConfig, getMotivosDescarte } from "@/lib/actions/atendimentos";
 import { getDashboardConfig } from "@/lib/actions/dashboard-config";
 import {
   getMarcaDaguaConfig,
   getMidiasOrigem,
+  getMotivosDesativacao,
   getPerfisEquipe,
   getStatusImovelConfig,
   getTiposImovelCustom,
@@ -25,12 +27,19 @@ function obterPlanoAtivo(assinaturas: Assinatura[] | undefined): PlanoAssinatura
   return ativa?.plano ?? "basico";
 }
 
-export default async function ConfiguracoesPage() {
+export default async function ConfiguracoesPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const corretor = await getCorretorForUser();
 
   if (!corretor) {
     redirect("/login");
   }
+
+  const params = await searchParams;
+  const initialTab = typeof params.aba === "string" ? params.aba : "perfil";
 
   const supabase = await createClient();
   const { data: assinaturas } = await supabase
@@ -40,7 +49,7 @@ export default async function ConfiguracoesPage() {
 
   const plano = obterPlanoAtivo(assinaturas ?? undefined);
   const agenteConfigResult = await getAgenteConfig(corretor.id);
-  const [tiposImovel, midiasOrigem, perfisEquipe, statusImovel, marcaDaguaConfig, dashboardConfig] =
+  const [tiposImovel, midiasOrigem, perfisEquipe, statusImovel, marcaDaguaConfig, dashboardConfig, atendimentoConfig, motivosDescarte, motivosDesativacao] =
     await Promise.all([
       getTiposImovelCustom(),
       getMidiasOrigem(),
@@ -48,6 +57,9 @@ export default async function ConfiguracoesPage() {
       getStatusImovelConfig(),
       getMarcaDaguaConfig(),
       getDashboardConfig(),
+      getAtendimentoConfig(),
+      getMotivosDescarte(),
+      getMotivosDesativacao(),
     ]);
 
   if ("error" in agenteConfigResult || !dashboardConfig) {
@@ -73,6 +85,10 @@ export default async function ConfiguracoesPage() {
           statusImovel={statusImovel}
           marcaDaguaConfig={marcaDaguaConfig}
           dashboardConfig={dashboardConfig}
+          atendimentoConfig={atendimentoConfig}
+          motivosDescarte={motivosDescarte}
+          motivosDesativacao={motivosDesativacao}
+          initialTab={initialTab}
         />
     </div>
   );

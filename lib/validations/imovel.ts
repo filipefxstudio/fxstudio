@@ -38,10 +38,13 @@ const baseImovelSchema = z.object({
     ["apartamento", "casa", "terreno", "comercial", "cobertura", "studio"],
     { error: "Selecione o tipo do imóvel." },
   ),
+  destinacao: z.enum(["residencial", "comercial", "rural"], {
+    error: "Selecione a destinação.",
+  }),
   finalidade: z.enum(["venda", "locacao"], {
     error: "Selecione a finalidade.",
   }),
-  status: z.enum(["disponivel", "reservado", "vendido", "locado"], {
+  status: z.enum(["disponivel", "reservado", "vendido", "locado", "desativado"], {
     error: "Selecione o status.",
   }).optional(),
   status_imovel_id: z.string().uuid({ error: "Selecione o status." }),
@@ -97,6 +100,7 @@ const baseImovelSchema = z.object({
   valor_locacao: optionalNumber("Valor de locação inválido."),
   valor_condominio: optionalNumber("Valor do condomínio inválido."),
   valor_iptu: optionalNumber("Valor do IPTU inválido."),
+  comissao_percent: optionalNumber("Comissão inválida."),
   descricao: z.string().trim().optional(),
   diferenciais: z.array(z.string()),
   video_url: z
@@ -109,7 +113,10 @@ const baseImovelSchema = z.object({
     ),
   publicado_site: z.boolean(),
   publicado_portais: z.boolean(),
+  exibir_endereco_site: z.enum(["completo", "apenas_bairro", "oculto"]),
+  exibir_endereco_portais: z.enum(["completo", "apenas_bairro", "oculto"]),
   cliente_id: z.string().uuid().optional().nullable(),
+  captador_id: z.string().min(1, "Selecione o captador.").uuid("Selecione o captador."),
   proprietario_novo: z
     .object({
       nome: z.string().trim().min(2),
@@ -199,6 +206,25 @@ export const imovelFormSchema = baseImovelSchema.superRefine((data, context) => 
       path: ["chaves_descricao"],
     });
   }
+
+  if (!data.cliente_id && !data.proprietario_novo) {
+    context.addIssue({
+      code: "custom",
+      message: "Vincule ou cadastre um proprietário.",
+      path: ["cliente_id"],
+    });
+  }
+
+  if (
+    data.proprietario_novo &&
+    data.proprietario_novo.eh_construtor_investidor === undefined
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "Informe se é construtor ou investidor.",
+      path: ["proprietario_novo", "eh_construtor_investidor"],
+    });
+  }
 });
 
 export type ImovelFormValues = z.infer<typeof imovelFormSchema>;
@@ -207,6 +233,7 @@ export const imovelFormDefaultValues: ImovelFormValues = {
   titulo: "",
   codigo_personalizado: "",
   tipo: "apartamento",
+  destinacao: "residencial",
   finalidade: "venda",
   status: "disponivel",
   status_imovel_id: "",
@@ -254,11 +281,15 @@ export const imovelFormDefaultValues: ImovelFormValues = {
   valor_locacao: null,
   valor_condominio: null,
   valor_iptu: null,
+  comissao_percent: null,
   descricao: "",
   diferenciais: [],
   video_url: "",
   publicado_site: true,
   publicado_portais: false,
+  exibir_endereco_site: "apenas_bairro",
+  exibir_endereco_portais: "apenas_bairro",
   cliente_id: null,
+  captador_id: "",
   proprietario_novo: null,
 };

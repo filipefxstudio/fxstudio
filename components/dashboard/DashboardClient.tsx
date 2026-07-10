@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, useTransition } from "react";
 import { Loader2 } from "lucide-react";
 
 import { DashboardAlertas } from "@/components/dashboard/DashboardAlertas";
+import { DashboardBairroChart } from "@/components/dashboard/DashboardBairroChart";
 import { DashboardCaptacoesChart } from "@/components/dashboard/DashboardCaptacoesChart";
 import { DashboardFunil } from "@/components/dashboard/DashboardFunil";
 import { DashboardImoveisDesatualizadosChart } from "@/components/dashboard/DashboardImoveisDesatualizadosChart";
@@ -89,22 +90,29 @@ export function DashboardClient({
 
       <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <DashboardFunil etapas={stats.funil} />
-        <DashboardTemperaturaChart data={stats.temperatura} />
+        <DashboardAlertas alertas={stats.alertas} />
       </section>
 
-      <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <section className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
+        <DashboardTemperaturaChart data={stats.temperatura} />
         <DashboardQualidadeChart data={stats.qualidade} />
+        <DashboardOrigemChart items={stats.origem} />
         <DashboardTempoInteracaoChart data={stats.tempoInteracao} />
       </section>
 
-      <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <DashboardOrigemChart items={stats.origem} />
+      <section className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
         <DashboardCaptacoesChart data={stats.captacoes} />
-      </section>
-
-      <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <DashboardImoveisDesatualizadosChart data={stats.imoveisDesatualizados} />
-        <DashboardAlertas alertas={stats.alertas} />
+        <DashboardBairroChart
+          title="Ranking imóveis por bairro"
+          items={stats.rankingImoveisBairro}
+          emptyMessage="Sem imóveis ativos."
+        />
+        <DashboardBairroChart
+          title="Bairros com mais leads"
+          items={stats.bairrosLeads}
+          emptyMessage="Sem leads ativos."
+        />
       </section>
     </div>
   );

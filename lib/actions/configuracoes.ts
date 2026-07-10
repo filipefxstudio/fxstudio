@@ -6,12 +6,13 @@ import {
   DEFAULT_MIDIAS_ORIGEM,
   DEFAULT_TIPOS_IMOVEL_CUSTOM,
   EQUIPE_LIMITE_USUARIOS,
+  MOTIVOS_DESATIVACAO,
   STORAGE_BUCKET_MARCA_DAGUA,
 } from "@/lib/constants/imoveis";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import type { MarcaDaguaConfig, MidiaOrigem, PapelUsuario, Perfil, StatusImovel, TipoImovelCustom } from "@/types";
+import type { MarcaDaguaConfig, MidiaOrigem, MotivoDesativacao, PapelUsuario, Perfil, StatusImovel, TipoImovelCustom } from "@/types";
 
 export type ConfigActionResult = {
   success?: boolean;
@@ -589,4 +590,102 @@ export async function uploadMarcaDaguaLogo(
 
   revalidatePath("/dashboard/configuracoes");
   return { success: true, logoUrl, message: "Logo enviada." };
+}
+
+// ---------------------------------------------------------------------------
+// Motivos de desativação de imóvel
+// ---------------------------------------------------------------------------
+
+async function seedMotivosDesativacao(corretorId: string) {
+  const supabase = await createClient();
+  const rows = MOTIVOS_DESATIVACAO.map((nome, ordem) => ({
+    corretor_id: corretorId,
+    nome,
+    ordem,
+    ativo: true,
+  }));
+  await supabase.from("motivos_desativacao").insert(rows);
+}
+
+export async function getMotivosDesativacao(): Promise<MotivoDesativacao[]> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) return [];
+
+  const supabase = await createClient();
+  const { count } = await supabase
+    .from("motivos_desativacao")
+    .select("id", { count: "exact", head: true })
+    .eq("corretor_id", corretor.id);
+
+  if ((count ?? 0) === 0) {
+    await seedMotivosDesativacao(corretor.id);
+  }
+
+  const { data, error } = await supabase
+    .from("motivos_desativacao")
+    .select("*")
+    .eq("corretor_id", corretor.id)
+    .order("ordem");
+
+  if (error) {
+    console.error("[getMotivosDesativacao] failed", error);
+    return [];
+  }
+
+  return (data ?? []) as MotivoDesativacao[];
+}
+
+export async function saveMotivoDesativacao(input: {
+  id?: string;
+  nome: string;
+  ativo?: boolean;
+}): Promise<ConfigActionResult> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) return { error: "Sessão expirada." };
+
+  const nome = input.nome.trim();
+  if (!nome) return { error: "Informe o nome do motivo." };
+
+  const supabase = await createClient();
+
+  if (input.id) {
+    const { error } = await supabase
+      .from("motivos_desativacao")
+      .update({ nome, ativo: input.ativo ?? true })
+      .eq("id", input.id)
+      .eq("corretor_id", corretor.id);
+    if (error) return { error: "Não foi possível salvar." };
+  } else {
+    const { count } = await supabase
+      .from("motivos_desativacao")
+      .select("id", { count: "exact", head: true })
+      .eq("corretor_id", corretor.id);
+    const { error } = await supabase.from("motivos_desativacao").insert({
+      corretor_id: corretor.id,
+      nome,
+      ordem: count ?? 0,
+      ativo: true,
+    });
+    if (error) return { error: "Não foi possível adicionar." };
+  }
+
+  revalidatePath("/dashboard/configuracoes");
+  return { success: true, message: "Motivo salvo." };
+}
+
+export async function deleteMotivoDesativacao(id: string): Promise<ConfigActionResult> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) return { error: "Sessão expirada." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("motivos_desativacao")
+    .delete()
+    .eq("id", id)
+    .eq("corretor_id", corretor.id);
+
+  if (error) return { error: "Não foi possível excluir." };
+
+  revalidatePath("/dashboard/configuracoes");
+  return { success: true };
 }

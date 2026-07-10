@@ -33,7 +33,11 @@ export function HeroLarImoveis({ corretor, bairros }: HeroLarImoveisProps) {
   const [codigo, setCodigo] = useState("");
 
   const heroImage = corretor.hero_image_url;
-  const titulo = corretor.sobre_titulo ?? `Encontre o imóvel ideal com ${corretor.nome}`;
+  const titulo =
+    corretor.hero_titulo ?? `Encontre o imóvel ideal com ${corretor.nome}`;
+  const subtitulo =
+    corretor.hero_subtitulo ??
+    "Apartamentos, casas e oportunidades para compra ou locação com atendimento personalizado.";
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -76,9 +80,7 @@ export function HeroLarImoveis({ corretor, bairros }: HeroLarImoveisProps) {
         <div className="max-w-2xl text-white">
           <h1 className="text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl">{titulo}</h1>
           <p className="mt-4 text-base leading-relaxed text-white/85 sm:text-lg">
-            {corretor.sobre_texto ??
-              corretor.sobre ??
-              "Apartamentos, casas e oportunidades para compra ou locação com atendimento personalizado."}
+            {subtitulo}
           </p>
         </div>
 

@@ -67,6 +67,8 @@ export interface DashboardData {
   origem: DashboardBarItem[];
   captacoes: DashboardChartSlice[];
   imoveisDesatualizados: DashboardChartSlice[];
+  rankingImoveisBairro: DashboardBarItem[];
+  bairrosLeads: DashboardBarItem[];
   alertas: DashboardAlertaItem[];
 }
 
@@ -98,6 +100,7 @@ type ImovelRow = Pick<
   | "id"
   | "status"
   | "finalidade"
+  | "bairro"
   | "data_ativacao"
   | "data_desativacao"
   | "data_ultima_atualizacao"
@@ -576,6 +579,64 @@ function buildImoveisDesatualizados(
   ];
 }
 
+function buildRankingImoveisBairro(
+  imoveis: ImovelRow[],
+  finalidadeImovel: FinalidadeImovel,
+): DashboardBarItem[] {
+  const disponiveis = imoveis.filter(
+    (i) => i.finalidade === finalidadeImovel && isImovelDisponivel(i) && i.bairro,
+  );
+
+  const bairroMap = new Map<string, number>();
+  for (const imovel of disponiveis) {
+    const bairro = imovel.bairro!.trim();
+    bairroMap.set(bairro, (bairroMap.get(bairro) ?? 0) + 1);
+  }
+
+  const colors = ["#1D3557", "#2E86AB", "#F18F01", "#E63946", "#2DC653"];
+
+  return Array.from(bairroMap.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([label, count], index) => ({
+      label,
+      count,
+      color: colors[index % colors.length],
+      href: `/dashboard/imoveis?bairro=${encodeURIComponent(label)}`,
+    }));
+}
+
+function buildBairrosLeads(
+  leads: LeadRow[],
+  finalidadeLead: "compra" | "locacao",
+): DashboardBarItem[] {
+  const ativos = leads.filter(
+    (l) => l.finalidade_busca === finalidadeLead && isLeadAtivo(l),
+  );
+
+  const bairroMap = new Map<string, number>();
+  for (const lead of ativos) {
+    for (const bairro of lead.bairros_interesse ?? []) {
+      const nome = bairro.trim();
+      if (!nome) continue;
+      bairroMap.set(nome, (bairroMap.get(nome) ?? 0) + 1);
+    }
+  }
+
+  const colors = ["#457B9D", "#2E86AB", "#F18F01", "#E63946", "#6C757D"];
+  const base = `/dashboard/atendimentos?finalidade=${finalidadeLead}`;
+
+  return Array.from(bairroMap.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([label, count], index) => ({
+      label,
+      count,
+      color: colors[index % colors.length],
+      href: base,
+    }));
+}
+
 function buildAlertas(
   leads: LeadRow[],
   imoveis: ImovelRow[],
@@ -691,12 +752,12 @@ export async function getDashboardData(
     getDashboardConfig(),
     supabase
       .from("leads")
-      .select("*, imovel:imoveis(titulo)")
+      .select("*, imovel:imoveis!leads_imovel_id_fkey(titulo)")
       .eq("corretor_id", corretor.id),
     supabase
       .from("imoveis")
       .select(
-        "id, status, finalidade, data_ativacao, data_desativacao, data_ultima_atualizacao, criado_em, local_chaves",
+        "id, status, finalidade, bairro, data_ativacao, data_desativacao, data_ultima_atualizacao, criado_em, local_chaves",
       )
       .eq("corretor_id", corretor.id),
     supabase
@@ -770,6 +831,8 @@ export async function getDashboardData(
     origem: buildOrigem(leads, finalidadeLead, start, end),
     captacoes: buildCaptacoes(imoveis, finalidadeImovel, start, end),
     imoveisDesatualizados: buildImoveisDesatualizados(imoveis, finalidadeImovel, config),
+    rankingImoveisBairro: buildRankingImoveisBairro(imoveis, finalidadeImovel),
+    bairrosLeads: buildBairrosLeads(leads, finalidadeLead),
     alertas: buildAlertas(
       leads,
       imoveis,

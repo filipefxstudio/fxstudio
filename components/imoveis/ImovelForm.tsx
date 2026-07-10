@@ -3,10 +3,12 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { Controller, useForm, type Resolver } from "react-hook-form";
+import { Controller, useForm, type FieldErrors, type Resolver } from "react-hook-form";
 
 import { CepInput } from "@/components/imoveis/CepInput";
+import { CaptadorSection } from "@/components/imoveis/CaptadorSection";
 import { FotoUpload, type FotoItem } from "@/components/imoveis/FotoUpload";
 import { ProprietarioSection } from "@/components/imoveis/ProprietarioSection";
 import { Button } from "@/components/ui/button";
@@ -34,13 +36,16 @@ import { toast } from "@/hooks/use-toast";
 import {
   checkImovelDuplicado,
   createImovel,
+  enviarImovelParaAprovacao,
   getProximoCodigoPreview,
   updateImovel,
 } from "@/lib/actions/imoveis";
 import { CARACTERISTICAS_CHECKLIST } from "@/lib/constants/caracteristicas-checklist";
 import {
   COMPLEMENTO_TIPOS,
+  DESTINACOES_IMOVEL,
   ESTADOS_BR,
+  EXIBIR_ENDERECO_OPCOES,
   FINALIDADES_IMOVEL,
   LOCAL_CHAVES_OPCOES,
   TIPOS_IMOVEL,
@@ -55,12 +60,14 @@ import {
   imovelFormSchema,
   type ImovelFormValues,
 } from "@/lib/validations/imovel";
-import type { Imovel, StatusImovel } from "@/types";
+import type { Imovel, Perfil, StatusImovel } from "@/types";
 
 interface ImovelFormProps {
   mode?: "create" | "edit";
   imovel?: Imovel;
   statusList?: StatusImovel[];
+  perfis?: Perfil[];
+  perfilAtualId?: string | null;
 }
 
 function FieldError({ message }: { message?: string }) {
@@ -75,7 +82,35 @@ function FieldError({ message }: { message?: string }) {
   );
 }
 
-export function ImovelForm({ mode = "create", imovel, statusList = [] }: ImovelFormProps) {
+function getFirstFormErrorMessage(errors: FieldErrors<ImovelFormValues>): string | null {
+  for (const value of Object.values(errors)) {
+    if (!value) {
+      continue;
+    }
+
+    if ("message" in value && typeof value.message === "string") {
+      return value.message;
+    }
+
+    if (typeof value === "object") {
+      const nested = getFirstFormErrorMessage(value as FieldErrors<ImovelFormValues>);
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+
+  return null;
+}
+
+export function ImovelForm({
+  mode = "create",
+  imovel,
+  statusList = [],
+  perfis = [],
+  perfilAtualId = null,
+}: ImovelFormProps) {
+  const router = useRouter();
   const isEdit = mode === "edit" && imovel;
 
   const [fotos, setFotos] = useState<FotoItem[]>(() =>
@@ -128,10 +163,31 @@ export function ImovelForm({ mode = "create", imovel, statusList = [] }: ImovelF
   );
 
   useEffect(() => {
+    if (!isEdit && perfilAtualId && !watch("captador_id")) {
+      setValue("captador_id", perfilAtualId);
+    }
+  }, [isEdit, perfilAtualId, setValue, watch]);
+
+  useEffect(() => {
     if (!isEdit) {
       getProximoCodigoPreview().then(setProximoCodigo);
     }
   }, [isEdit]);
+
+  function handleEnviarAprovacao() {
+    if (!isEdit) {
+      return;
+    }
+
+    startTransition(async () => {
+      const result = await enviarImovelParaAprovacao(imovel.id);
+      if (result.error) {
+        toast({ variant: "destructive", title: "Erro", description: result.error });
+        return;
+      }
+      toast({ title: "Imóvel enviado para aprovação." });
+    });
+  }
 
   useEffect(() => {
     if (!isEdit && statusList.length > 0 && !statusImovelId) {
@@ -248,6 +304,19 @@ export function ImovelForm({ mode = "create", imovel, statusList = [] }: ImovelF
     return current.filter((value) => value !== item);
   }
 
+  function onInvalid(formErrors: FieldErrors<ImovelFormValues>) {
+    const message =
+      getFirstFormErrorMessage(formErrors) ??
+      "Revise os campos obrigatórios antes de salvar.";
+
+    setSubmitError(message);
+    toast({
+      variant: "destructive",
+      title: "Não foi possível salvar",
+      description: message,
+    });
+  }
+
   function onSubmit(values: ImovelFormValues) {
     setSubmitError(null);
 
@@ -266,7 +335,12 @@ export function ImovelForm({ mode = "create", imovel, statusList = [] }: ImovelF
 
         if (result?.error) {
           setSubmitError(result.error);
+          return;
         }
+
+        toast({ title: "Imóvel atualizado com sucesso." });
+        router.push(`/dashboard/imoveis/${imovel.id}`);
+        router.refresh();
         return;
       }
 
@@ -285,7 +359,12 @@ export function ImovelForm({ mode = "create", imovel, statusList = [] }: ImovelF
 
       if (result?.error) {
         setSubmitError(result.error);
+        return;
       }
+
+      toast({ title: "Imóvel cadastrado com sucesso." });
+      router.push(result.imovelId ? `/dashboard/imoveis/${result.imovelId}` : "/dashboard/imoveis");
+      router.refresh();
     });
   }
 
@@ -299,7 +378,7 @@ export function ImovelForm({ mode = "create", imovel, statusList = [] }: ImovelF
   ];
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+    <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle>Código do imóvel</CardTitle>
@@ -339,17 +418,6 @@ export function ImovelForm({ mode = "create", imovel, statusList = [] }: ImovelF
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="titulo">Título</Label>
-            <Input
-              id="titulo"
-              placeholder="Ex.: Apartamento 3 quartos com vista"
-              aria-invalid={Boolean(errors.titulo)}
-              {...register("titulo")}
-            />
-            <FieldError message={errors.titulo?.message} />
-          </div>
-
           {slugPreview ? (
             <p className="text-sm text-muted-foreground">
               Slug: <span className="font-mono text-foreground">{slugPreview}</span>
@@ -401,6 +469,29 @@ export function ImovelForm({ mode = "create", imovel, statusList = [] }: ImovelF
                 )}
               />
               <FieldError message={errors.finalidade?.message} />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Destinação</Label>
+              <Controller
+                control={control}
+                name="destinacao"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger aria-invalid={Boolean(errors.destinacao)}>
+                      <SelectValue placeholder="Selecione a destinação" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DESTINACOES_IMOVEL.map((item) => (
+                        <SelectItem key={item.value} value={item.value}>
+                          {item.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <FieldError message={errors.destinacao?.message} />
             </div>
 
             <div className="space-y-2">
@@ -648,7 +739,31 @@ export function ImovelForm({ mode = "create", imovel, statusList = [] }: ImovelF
 
       <Card>
         <CardHeader>
-          <CardTitle>3. Chaves e opções</CardTitle>
+          <CardTitle>3. Proprietário e captador</CardTitle>
+          <CardDescription>
+            Vincule o proprietário e o captador responsável pelo imóvel.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-6 lg:grid-cols-2">
+          <ProprietarioSection
+            control={control}
+            setValue={setValue}
+            clienteId={clienteId}
+            disabled={isPending}
+            error={errors.cliente_id?.message}
+          />
+          <CaptadorSection
+            control={control}
+            perfis={perfis}
+            disabled={isPending}
+            error={errors.captador_id?.message}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>4. Chaves e opções</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -714,10 +829,10 @@ export function ImovelForm({ mode = "create", imovel, statusList = [] }: ImovelF
 
       <Card>
         <CardHeader>
-          <CardTitle>4. Características</CardTitle>
-          <CardDescription>Áreas e composição do imóvel.</CardDescription>
+          <CardTitle>5. Características e diferenciais</CardTitle>
+          <CardDescription>Áreas, composição e checklists do imóvel.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-6">
           <div className="grid gap-4 grid-cols-2 sm:grid-cols-4">
             <div className="space-y-2">
               <Label htmlFor="area_util">Área útil (m²)</Label>
@@ -791,12 +906,46 @@ export function ImovelForm({ mode = "create", imovel, statusList = [] }: ImovelF
               />
             </div>
           </div>
+
+          {CARACTERISTICAS_CHECKLIST.map((categoria) => (
+            <div key={categoria.id} className="space-y-2">
+              <Label>{categoria.titulo}</Label>
+              <Controller
+                control={control}
+                name="diferenciais"
+                render={({ field }) => (
+                  <div className="flex flex-wrap gap-2">
+                    {categoria.itens.map((item) => {
+                      const selected = field.value.includes(item);
+                      return (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() =>
+                            field.onChange(toggleDiferencial(field.value, item, !selected))
+                          }
+                          className={cn(
+                            "rounded-full border px-3 py-1.5 text-sm transition-colors",
+                            selected
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-border bg-background hover:bg-muted",
+                          )}
+                        >
+                          {item}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              />
+            </div>
+          ))}
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>5. Valores</CardTitle>
+          <CardTitle>6. Valores e comissão</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {finalidade === "venda" ? (
@@ -880,69 +1029,53 @@ export function ImovelForm({ mode = "create", imovel, statusList = [] }: ImovelF
               </div>
             </div>
           )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="comissao_percent">Comissão (%)</Label>
+              <Input
+                id="comissao_percent"
+                type="number"
+                min={0}
+                max={100}
+                step="0.01"
+                {...register("comissao_percent")}
+              />
+              <FieldError message={errors.comissao_percent?.message} />
+            </div>
+          </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>6. Descrição e características</CardTitle>
+          <CardTitle>7. Título e descrição</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="titulo">Título</Label>
+            <Input
+              id="titulo"
+              placeholder="Ex.: Apartamento 3 quartos com vista"
+              aria-invalid={Boolean(errors.titulo)}
+              {...register("titulo")}
+            />
+            <FieldError message={errors.titulo?.message} />
+          </div>
           <div className="space-y-2">
             <Label htmlFor="descricao">Descrição</Label>
             <Textarea id="descricao" rows={5} {...register("descricao")} />
           </div>
-
-          {CARACTERISTICAS_CHECKLIST.map((categoria) => (
-            <div key={categoria.id} className="space-y-2">
-              <Label>{categoria.titulo}</Label>
-              <Controller
-                control={control}
-                name="diferenciais"
-                render={({ field }) => (
-                  <div className="flex flex-wrap gap-2">
-                    {categoria.itens.map((item) => {
-                      const selected = field.value.includes(item);
-                      return (
-                        <button
-                          key={item}
-                          type="button"
-                          onClick={() =>
-                            field.onChange(toggleDiferencial(field.value, item, !selected))
-                          }
-                          className={cn(
-                            "rounded-full border px-3 py-1.5 text-sm transition-colors",
-                            selected
-                              ? "border-primary bg-primary text-primary-foreground"
-                              : "border-border bg-background hover:bg-muted",
-                          )}
-                        >
-                          {item}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              />
-            </div>
-          ))}
-
-          <div className="space-y-2">
-            <Label htmlFor="video_url">URL do vídeo</Label>
-            <Input id="video_url" type="url" {...register("video_url")} />
-            <FieldError message={errors.video_url?.message} />
-          </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Publicação</CardTitle>
+          <CardTitle>8. Publicação</CardTitle>
           <CardDescription>
-            Controle onde o imóvel será exibido.
+            Controle onde o imóvel será exibido e qual endereço mostrar.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-4">
           <Controller
             control={control}
             name="publicado_site"
@@ -977,30 +1110,72 @@ export function ImovelForm({ mode = "create", imovel, statusList = [] }: ImovelF
               </div>
             )}
           />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Exibir endereço no site</Label>
+              <Controller
+                control={control}
+                name="exibir_endereco_site"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {EXIBIR_ENDERECO_OPCOES.map((item) => (
+                        <SelectItem key={item.value} value={item.value}>
+                          {item.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Exibir endereço nos portais</Label>
+              <Controller
+                control={control}
+                name="exibir_endereco_portais"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {EXIBIR_ENDERECO_OPCOES.map((item) => (
+                        <SelectItem key={item.value} value={item.value}>
+                          {item.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
+          </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>7. Proprietário</CardTitle>
-          <CardDescription>Vincule ou cadastre o proprietário do imóvel.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ProprietarioSection
-            control={control}
-            setValue={setValue}
-            clienteId={clienteId}
-            disabled={isPending}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>8. Fotos</CardTitle>
+          <CardTitle>9. Fotos</CardTitle>
         </CardHeader>
         <CardContent>
           <FotoUpload fotos={fotos} onChange={setFotos} disabled={isPending} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>10. Vídeo</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            <Label htmlFor="video_url">URL do vídeo</Label>
+            <Input id="video_url" type="url" {...register("video_url")} />
+            <FieldError message={errors.video_url?.message} />
+          </div>
         </CardContent>
       </Card>
 
@@ -1011,6 +1186,17 @@ export function ImovelForm({ mode = "create", imovel, statusList = [] }: ImovelF
       ) : null}
 
       <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        {isEdit && imovel.status_aprovacao === "cadastro_incompleto" ? (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={isPending}
+            onClick={handleEnviarAprovacao}
+            className="min-w-36"
+          >
+            Enviar para aprovação
+          </Button>
+        ) : null}
         <Button type="button" variant="outline" asChild disabled={isPending}>
           <Link href={isEdit ? `/dashboard/imoveis/${imovel.id}` : "/dashboard/imoveis"}>
             Cancelar

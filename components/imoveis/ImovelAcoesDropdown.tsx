@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import {
+  Ban,
   Check,
   ChevronDown,
   ChevronRight,
@@ -11,13 +12,16 @@ import {
   MoreVertical,
   Pencil,
   Share2,
-  Trash2,
 } from "lucide-react";
 
-import { DeleteImovelDialog } from "@/components/imoveis/DeleteImovelDialog";
+import {
+  ImovelAlterarStatusModal,
+  ImovelDesativarModal,
+} from "@/components/imoveis/ImovelStatusModals";
 import { toast } from "@/hooks/use-toast";
-import { updateImovelStatus, validarAtualizacao } from "@/lib/actions/imoveis";
-import { getPublicImovelUrl } from "@/lib/imoveis/format";
+import { validarAtualizacao } from "@/lib/actions/imoveis";
+import { STATUS_IMOVEL_SISTEMA } from "@/lib/constants/imoveis";
+import { getPublicImovelShareUrlClient } from "@/lib/imoveis/share-url";
 import { cn } from "@/lib/utils";
 import type { Imovel, StatusImovel } from "@/types";
 
@@ -54,9 +58,15 @@ export function ImovelAcoesDropdown({
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
-  const [deleteOpen, setDeleteOpen] = useState(false);
   const [statusSubmenuOpen, setStatusSubmenuOpen] = useState(false);
+  const [desativarOpen, setDesativarOpen] = useState(false);
+  const [statusModalOpen, setStatusModalOpen] = useState(false);
+  const [pendingStatusId, setPendingStatusId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  const manualStatusList = statusList.filter(
+    (status) => !(STATUS_IMOVEL_SISTEMA as readonly string[]).includes(status.nome),
+  );
 
   const updateMenuPosition = useCallback(() => {
     const trigger = triggerRef.current;
@@ -137,7 +147,7 @@ export function ImovelAcoesDropdown({
       return;
     }
 
-    const url = getPublicImovelUrl(corretorSlug, imovel.slug);
+    const url = getPublicImovelShareUrlClient(corretorSlug, imovel.slug);
 
     void navigator.clipboard.writeText(url).then(() => {
       toast({
@@ -147,22 +157,11 @@ export function ImovelAcoesDropdown({
     });
   }
 
-  function handleStatusChange(statusId: string, event: React.MouseEvent) {
+  function handleStatusPick(statusId: string, event: React.MouseEvent) {
     stopCardNav(event);
     closeMenu();
-
-    startTransition(async () => {
-      const result = await updateImovelStatus(imovel.id, statusId);
-
-      if (result.error) {
-        toast({ variant: "destructive", title: "Erro", description: result.error });
-        return;
-      }
-
-      toast({ title: "Status atualizado." });
-      onStatusChange?.(statusId);
-      router.refresh();
-    });
+    setPendingStatusId(statusId);
+    setStatusModalOpen(true);
   }
 
   function handleValidar(event: React.MouseEvent) {
@@ -198,10 +197,10 @@ export function ImovelAcoesDropdown({
     router.push(`/dashboard/imoveis/${imovel.id}`);
   }
 
-  function handleDelete(event: React.MouseEvent) {
+  function handleDesativar(event: React.MouseEvent) {
     stopCardNav(event);
     closeMenu();
-    setDeleteOpen(true);
+    setDesativarOpen(true);
   }
 
   const triggerClass =
@@ -267,13 +266,13 @@ export function ImovelAcoesDropdown({
 
         {statusSubmenuOpen ? (
           <div className="border-t border-border py-1">
-            {statusList.map((status) => (
+            {manualStatusList.map((status) => (
               <button
                 key={status.id}
                 type="button"
                 disabled={isPending || imovel.status_imovel_id === status.id}
                 className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm hover:bg-muted disabled:opacity-50"
-                onClick={(event) => handleStatusChange(status.id, event)}
+                onClick={(event) => handleStatusPick(status.id, event)}
               >
                 <span
                   className="size-2.5 shrink-0 rounded-full"
@@ -301,10 +300,10 @@ export function ImovelAcoesDropdown({
       <button
         type="button"
         className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive hover:bg-muted"
-        onClick={handleDelete}
+        onClick={handleDesativar}
       >
-        <Trash2 className="size-4" />
-        Excluir
+        <Ban className="size-4" />
+        Desativar
       </button>
     </div>
   ) : null;
@@ -331,11 +330,23 @@ export function ImovelAcoesDropdown({
         ? createPortal(menuContent, document.body)
         : null}
 
-      <DeleteImovelDialog
+      <ImovelDesativarModal
         imovelId={imovel.id}
-        imovelTitulo={imovel.titulo ?? imovel.codigo ?? "Imóvel"}
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
+        open={desativarOpen}
+        onOpenChange={setDesativarOpen}
+        onSuccess={() => router.refresh()}
+      />
+
+      <ImovelAlterarStatusModal
+        imovelId={imovel.id}
+        statusList={statusList}
+        statusId={pendingStatusId}
+        open={statusModalOpen}
+        onOpenChange={setStatusModalOpen}
+        onSuccess={(statusId) => {
+          onStatusChange?.(statusId);
+          router.refresh();
+        }}
       />
     </>
   );

@@ -31,6 +31,7 @@ interface CepInputProps {
   error?: string;
   disabled?: boolean;
   className?: string;
+  showLabel?: boolean;
 }
 
 function formatCep(value: string): string {
@@ -51,6 +52,7 @@ export function CepInput({
   error,
   disabled,
   className,
+  showLabel = true,
 }: CepInputProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
@@ -108,7 +110,7 @@ export function CepInput({
 
   return (
     <div className={cn("space-y-2", className)}>
-      <Label htmlFor={id}>CEP</Label>
+      {showLabel ? <Label htmlFor={id}>CEP</Label> : null}
       <div className="relative">
         <Input
           id={id}

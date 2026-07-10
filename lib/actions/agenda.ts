@@ -2,9 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 
+import {
+  registrarAuditoria,
+  registrarInteracao,
+  updateVisita,
+} from "@/lib/actions/atendimentos";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 import { createClient } from "@/lib/supabase/server";
-import type { Agenda, StatusAgenda, TipoAgenda } from "@/types";
+import type { Agenda, StatusAgenda, TipoAgenda, TipoInteracao } from "@/types";
 
 export type AgendaActionResult = {
   success?: boolean;
@@ -197,4 +202,213 @@ export async function marcarLembreteEnviado(agendaId: string): Promise<void> {
     .from("agenda")
     .update({ lembrete_enviado: true })
     .eq("id", agendaId);
+}
+
+function interacaoTipoFromAgenda(tipo: TipoAgenda): TipoInteracao {
+  switch (tipo) {
+    case "ligacao":
+      return "ligacao";
+    case "whatsapp":
+    case "lembrete":
+      return "mensagem_whatsapp";
+    case "email":
+    case "tarefa":
+      return "email";
+    case "visita":
+      return "visita";
+    default:
+      return "anotacao";
+  }
+}
+
+export interface MarcarAgendaRealizadoInput {
+  observacoes?: string;
+  parecer?: string;
+  vai_gerar_proposta?: string;
+}
+
+export async function marcarAgendaRealizado(
+  agendaId: string,
+  input?: MarcarAgendaRealizadoInput,
+): Promise<AgendaActionResult> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) return { error: "Sessão expirada." };
+
+  const supabase = await createClient();
+  const { data: item, error: fetchError } = await supabase
+    .from("agenda")
+    .select("id, lead_id, visita_id, tipo, titulo, status")
+    .eq("id", agendaId)
+    .eq("corretor_id", corretor.id)
+    .maybeSingle();
+
+  if (fetchError || !item) return { error: "Atividade não encontrada." };
+  if (item.status === "concluida") return { error: "Atividade já concluída." };
+
+  const { error } = await supabase
+    .from("agenda")
+    .update({ status: "concluida" })
+    .eq("id", agendaId)
+    .eq("corretor_id", corretor.id);
+
+  if (error) return { error: "Não foi possível marcar como realizado." };
+
+  const tipo = item.tipo as TipoAgenda;
+  const leadId = item.lead_id as string | null;
+  const observacoes = input?.observacoes?.trim();
+
+  if (tipo === "visita" && item.visita_id) {
+    const visitaResult = await updateVisita(item.visita_id as string, {
+      status: "realizada",
+      parecer: input?.parecer,
+      vai_gerar_proposta: input?.vai_gerar_proposta,
+      observacoes,
+    });
+    if (visitaResult.error) return visitaResult;
+  } else if (leadId) {
+    const descricao =
+      observacoes ||
+      `Atividade "${item.titulo}" marcada como realizada.`;
+    await registrarInteracao(leadId, interacaoTipoFromAgenda(tipo), descricao);
+    await registrarAuditoria(leadId, "agenda_realizada", {
+      agenda_id: agendaId,
+      tipo,
+    });
+  }
+
+  revalidatePath("/dashboard/agenda");
+  revalidatePath("/dashboard");
+  if (leadId) revalidatePath(`/dashboard/atendimentos/${leadId}`);
+  return { success: true, message: "Atividade marcada como realizada." };
+}
+
+export async function cancelarAgendaItem(
+  agendaId: string,
+  motivo?: string,
+): Promise<AgendaActionResult> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) return { error: "Sessão expirada." };
+
+  const supabase = await createClient();
+  const { data: item, error: fetchError } = await supabase
+    .from("agenda")
+    .select("id, lead_id, visita_id, tipo, titulo, status")
+    .eq("id", agendaId)
+    .eq("corretor_id", corretor.id)
+    .maybeSingle();
+
+  if (fetchError || !item) return { error: "Atividade não encontrada." };
+  if (item.status === "cancelada") return { error: "Atividade já cancelada." };
+
+  const { error } = await supabase
+    .from("agenda")
+    .update({ status: "cancelada" })
+    .eq("id", agendaId)
+    .eq("corretor_id", corretor.id);
+
+  if (error) return { error: "Não foi possível cancelar a atividade." };
+
+  const leadId = item.lead_id as string | null;
+  const motivoTexto = motivo?.trim();
+
+  if (item.visita_id) {
+    await updateVisita(item.visita_id as string, { status: "cancelada", observacoes: motivoTexto });
+  }
+
+  if (leadId) {
+    const descricao = motivoTexto
+      ? `Atividade "${item.titulo}" cancelada: ${motivoTexto}`
+      : `Atividade "${item.titulo}" cancelada.`;
+    await registrarInteracao(leadId, "anotacao", descricao);
+    await registrarAuditoria(leadId, "agenda_cancelada", { agenda_id: agendaId });
+  }
+
+  revalidatePath("/dashboard/agenda");
+  revalidatePath("/dashboard");
+  if (leadId) revalidatePath(`/dashboard/atendimentos/${leadId}`);
+  return { success: true, message: "Atividade cancelada." };
+}
+
+export interface EditarAgendaInput {
+  titulo?: string;
+  descricao?: string;
+  data_atividade?: string;
+  tipo?: TipoAgenda;
+}
+
+export async function editarAgendaItem(
+  agendaId: string,
+  input: EditarAgendaInput,
+): Promise<AgendaActionResult> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) return { error: "Sessão expirada." };
+
+  const supabase = await createClient();
+  const { data: item, error: fetchError } = await supabase
+    .from("agenda")
+    .select("id, lead_id, visita_id, titulo")
+    .eq("id", agendaId)
+    .eq("corretor_id", corretor.id)
+    .maybeSingle();
+
+  if (fetchError || !item) return { error: "Atividade não encontrada." };
+
+  const payload: Record<string, unknown> = {};
+  if (input.titulo !== undefined) {
+    const titulo = input.titulo.trim();
+    if (!titulo) return { error: "Informe o título." };
+    payload.titulo = titulo;
+  }
+  if (input.descricao !== undefined) payload.descricao = input.descricao.trim() || null;
+  if (input.tipo !== undefined) payload.tipo = input.tipo;
+  if (input.data_atividade) {
+    payload.data_atividade = new Date(input.data_atividade).toISOString();
+  }
+
+  if (Object.keys(payload).length === 0) {
+    return { error: "Nenhuma alteração informada." };
+  }
+
+  const { error } = await supabase
+    .from("agenda")
+    .update(payload)
+    .eq("id", agendaId)
+    .eq("corretor_id", corretor.id);
+
+  if (error) return { error: "Não foi possível editar a atividade." };
+
+  if (item.visita_id && input.data_atividade) {
+    await supabase
+      .from("visitas")
+      .update({ data_visita: new Date(input.data_atividade).toISOString() })
+      .eq("id", item.visita_id)
+      .eq("corretor_id", corretor.id);
+  }
+
+  const leadId = item.lead_id as string | null;
+  if (leadId) {
+    await registrarInteracao(
+      leadId,
+      "anotacao",
+      `Atividade "${item.titulo}" editada.`,
+    );
+    await registrarAuditoria(leadId, "agenda_editada", { agenda_id: agendaId, ...payload });
+  }
+
+  revalidatePath("/dashboard/agenda");
+  revalidatePath("/dashboard");
+  if (leadId) revalidatePath(`/dashboard/atendimentos/${leadId}`);
+  return { success: true, message: "Atividade atualizada." };
+}
+
+export async function getTiposCompromisso() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("tipos_compromisso")
+    .select("nome, icone, ordem")
+    .eq("ativo", true)
+    .order("ordem", { ascending: true });
+
+  if (error || !data?.length) return null;
+  return data;
 }

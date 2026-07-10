@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ChevronDown, X } from "lucide-react";
 
+import { CheckboxFilterDropdown } from "@/components/imoveis/CheckboxFilterDropdown";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -23,11 +24,11 @@ type MinimoNumericoFilter = "all" | "1" | "2" | "3" | "4";
 
 export interface ImoveisFilterState {
   finalidade: FinalidadeImovel | "all";
-  tipo: TipoImovel | "all";
-  statusId: string | "all";
+  tipos: TipoImovel[];
+  statusIds: string[];
   valorMin: string;
   valorMax: string;
-  bairro: string;
+  bairros: string[];
   quartosMin: MinimoNumericoFilter;
   banheirosMin: MinimoNumericoFilter;
   vagasMin: MinimoNumericoFilter;
@@ -36,11 +37,11 @@ export interface ImoveisFilterState {
 
 export const defaultImoveisFilters: ImoveisFilterState = {
   finalidade: "all",
-  tipo: "all",
-  statusId: "all",
+  tipos: [],
+  statusIds: [],
   valorMin: "",
   valorMax: "",
-  bairro: "",
+  bairros: [],
   quartosMin: "all",
   banheirosMin: "all",
   vagasMin: "all",
@@ -88,11 +89,11 @@ export function ImoveisFilters({
 
   const hasActiveFilters =
     filters.finalidade !== "all" ||
-    filters.tipo !== "all" ||
-    filters.statusId !== "all" ||
+    filters.tipos.length > 0 ||
+    filters.statusIds.length > 0 ||
     filters.valorMin !== "" ||
     filters.valorMax !== "" ||
-    filters.bairro !== "" ||
+    filters.bairros.length > 0 ||
     filters.quartosMin !== "all" ||
     filters.banheirosMin !== "all" ||
     filters.vagasMin !== "all" ||
@@ -136,45 +137,19 @@ export function ImoveisFilters({
           </Select>
         </div>
 
-        <div className="space-y-2">
-          <Label>Tipo</Label>
-          <Select
-            value={filters.tipo}
-            onValueChange={(value) => update("tipo", value as ImoveisFilterState["tipo"])}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Todos" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {TIPOS_IMOVEL.map((item) => (
-                <SelectItem key={item.value} value={item.value}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <CheckboxFilterDropdown
+          label="Tipo"
+          options={TIPOS_IMOVEL.map((item) => ({ value: item.value, label: item.label }))}
+          selected={filters.tipos}
+          onChange={(tipos) => update("tipos", tipos as TipoImovel[])}
+        />
 
-        <div className="space-y-2">
-          <Label>Status</Label>
-          <Select
-            value={filters.statusId}
-            onValueChange={(value) => update("statusId", value)}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Todos" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {statusList.map((status) => (
-                <SelectItem key={status.id} value={status.id}>
-                  {status.nome}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <CheckboxFilterDropdown
+          label="Status"
+          options={statusList.map((status) => ({ value: status.id, label: status.nome }))}
+          selected={filters.statusIds}
+          onChange={(statusIds) => update("statusIds", statusIds)}
+        />
 
         <div className="space-y-2">
           <Label htmlFor="filtro-valor-min">Valor mínimo (R$)</Label>
@@ -200,25 +175,12 @@ export function ImoveisFilters({
           />
         </div>
 
-        <div className="space-y-2">
-          <Label>Bairro</Label>
-          <Select
-            value={filters.bairro || "all"}
-            onValueChange={(value) => update("bairro", value === "all" ? "" : value)}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Todos os bairros" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos os bairros</SelectItem>
-              {bairros.map((bairro) => (
-                <SelectItem key={bairro} value={bairro}>
-                  {bairro}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <CheckboxFilterDropdown
+          label="Bairro"
+          options={bairros.map((bairro) => ({ value: bairro, label: bairro }))}
+          selected={filters.bairros}
+          onChange={(selected) => update("bairros", selected)}
+        />
 
         <div className="space-y-2">
           <Label>Quartos (mínimo)</Label>
@@ -329,14 +291,66 @@ export function ImoveisFilters({
 export function countActiveFilters(filters: ImoveisFilterState): number {
   let count = 0;
   if (filters.finalidade !== "all") count += 1;
-  if (filters.tipo !== "all") count += 1;
-  if (filters.statusId !== "all") count += 1;
+  count += filters.tipos.length;
+  count += filters.statusIds.length;
   if (filters.valorMin) count += 1;
   if (filters.valorMax) count += 1;
-  if (filters.bairro) count += 1;
+  count += filters.bairros.length;
   if (filters.quartosMin !== "all") count += 1;
   if (filters.banheirosMin !== "all") count += 1;
   if (filters.vagasMin !== "all") count += 1;
-  if (filters.caracteristicas.length > 0) count += filters.caracteristicas.length;
+  count += filters.caracteristicas.length;
   return count;
+}
+
+export function buildImoveisFilterTags(
+  filters: ImoveisFilterState,
+  statusList: StatusImovel[],
+): { key: string; label: string; onRemove: () => ImoveisFilterState }[] {
+  const tags: { key: string; label: string; onRemove: () => ImoveisFilterState }[] = [];
+
+  if (filters.finalidade !== "all") {
+    const label =
+      FINALIDADES_IMOVEL.find((item) => item.value === filters.finalidade)?.label ??
+      filters.finalidade;
+    tags.push({
+      key: "finalidade",
+      label: `Finalidade: ${label}`,
+      onRemove: () => ({ ...filters, finalidade: "all" }),
+    });
+  }
+
+  for (const tipo of filters.tipos) {
+    const label = TIPOS_IMOVEL.find((item) => item.value === tipo)?.label ?? tipo;
+    tags.push({
+      key: `tipo-${tipo}`,
+      label: `Tipo: ${label}`,
+      onRemove: () => ({ ...filters, tipos: filters.tipos.filter((item) => item !== tipo) }),
+    });
+  }
+
+  for (const statusId of filters.statusIds) {
+    const label = statusList.find((item) => item.id === statusId)?.nome ?? "Status";
+    tags.push({
+      key: `status-${statusId}`,
+      label: `Status: ${label}`,
+      onRemove: () => ({
+        ...filters,
+        statusIds: filters.statusIds.filter((item) => item !== statusId),
+      }),
+    });
+  }
+
+  for (const bairro of filters.bairros) {
+    tags.push({
+      key: `bairro-${bairro}`,
+      label: `Bairro: ${bairro}`,
+      onRemove: () => ({
+        ...filters,
+        bairros: filters.bairros.filter((item) => item !== bairro),
+      }),
+    });
+  }
+
+  return tags;
 }

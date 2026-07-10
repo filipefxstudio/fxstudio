@@ -30,12 +30,16 @@ export function FormularioAvaliarImovel() {
   const [cep, setCep] = useState("");
   const [logradouro, setLogradouro] = useState("");
   const [numero, setNumero] = useState("");
+  const [complemento, setComplemento] = useState("");
   const [bairro, setBairro] = useState("");
   const [cidade, setCidade] = useState("");
   const [estado, setEstado] = useState("");
   const [tipo, setTipo] = useState<TipoImovel | undefined>();
   const [area, setArea] = useState("");
+  const [areaTerreno, setAreaTerreno] = useState("");
   const [quartos, setQuartos] = useState("");
+  const [banheiros, setBanheiros] = useState("");
+  const [vagas, setVagas] = useState("");
   const [observacoes, setObservacoes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -55,12 +59,15 @@ export function FormularioAvaliarImovel() {
     const imovelInfo = [
       "Solicitação de avaliação de imóvel",
       cep ? `CEP: ${cep}` : null,
-      logradouro ? `Endereço: ${logradouro}${numero ? `, ${numero}` : ""}` : null,
+      logradouro ? `Endereço: ${logradouro}${numero ? `, ${numero}` : ""}${complemento ? ` - ${complemento}` : ""}` : null,
       bairro ? `Bairro: ${bairro}` : null,
       cidade || estado ? `Cidade/UF: ${[cidade, estado].filter(Boolean).join(" - ")}` : null,
       tipo ? `Tipo: ${TIPOS_IMOVEL.find((item) => item.value === tipo)?.label ?? tipo}` : null,
-      area ? `Área: ${area} m²` : null,
+      area ? `Área útil: ${area} m²` : null,
+      areaTerreno ? `Área do terreno: ${areaTerreno} m²` : null,
       quartos ? `Quartos: ${quartos}` : null,
+      banheiros ? `Banheiros: ${banheiros}` : null,
+      vagas ? `Vagas: ${vagas}` : null,
       observacoes.trim() ? `Detalhes: ${observacoes.trim()}` : null,
     ]
       .filter(Boolean)
@@ -162,6 +169,7 @@ export function FormularioAvaliarImovel() {
               value={cep}
               onChange={setCep}
               onAddressFound={handleAddressFound}
+              showLabel={false}
             />
           </div>
           <div className="space-y-2">
@@ -196,6 +204,14 @@ export function FormularioAvaliarImovel() {
             />
           </div>
           <div className="space-y-2">
+            <Label htmlFor="avaliar-complemento">Complemento</Label>
+            <Input
+              id="avaliar-complemento"
+              value={complemento}
+              onChange={(event) => setComplemento(event.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
             <Label htmlFor="avaliar-bairro">Bairro</Label>
             <Input
               id="avaliar-bairro"
@@ -221,12 +237,21 @@ export function FormularioAvaliarImovel() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="avaliar-area">Área (m²)</Label>
+            <Label htmlFor="avaliar-area">Área útil (m²)</Label>
             <Input
               id="avaliar-area"
               inputMode="numeric"
               value={area}
               onChange={(event) => setArea(event.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="avaliar-area-terreno">Área do terreno (m²)</Label>
+            <Input
+              id="avaliar-area-terreno"
+              inputMode="numeric"
+              value={areaTerreno}
+              onChange={(event) => setAreaTerreno(event.target.value)}
             />
           </div>
           <div className="space-y-2">
@@ -236,6 +261,24 @@ export function FormularioAvaliarImovel() {
               inputMode="numeric"
               value={quartos}
               onChange={(event) => setQuartos(event.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="avaliar-banheiros">Banheiros</Label>
+            <Input
+              id="avaliar-banheiros"
+              inputMode="numeric"
+              value={banheiros}
+              onChange={(event) => setBanheiros(event.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="avaliar-vagas">Vagas</Label>
+            <Input
+              id="avaliar-vagas"
+              inputMode="numeric"
+              value={vagas}
+              onChange={(event) => setVagas(event.target.value)}
             />
           </div>
         </div>

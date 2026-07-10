@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
 import { ImovelDetalhes } from "@/components/imoveis/ImovelDetalhes";
+import { getAuditoriaImovel, getImovelDesempenho } from "@/lib/actions/imovel-desempenho";
 import { getImovelById, getStatusImovelList } from "@/lib/actions/imoveis";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 
@@ -29,9 +30,11 @@ export default async function ImovelDetailPage({ params }: ImovelDetailPageProps
   }
 
   const { id } = await params;
-  const [imovel, statusList] = await Promise.all([
+  const [imovel, statusList, auditoria, desempenho] = await Promise.all([
     getImovelById(id),
     getStatusImovelList(corretor.id),
+    getAuditoriaImovel(id),
+    getImovelDesempenho(id),
   ]);
 
   if (!imovel) {
@@ -44,6 +47,8 @@ export default async function ImovelDetailPage({ params }: ImovelDetailPageProps
         imovel={imovel}
         corretorSlug={corretor.slug}
         statusList={statusList}
+        auditoria={auditoria}
+        desempenho={desempenho}
       />
     </div>
   );

@@ -3,7 +3,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 
-import { NovoLeadForm } from "@/components/leads/NovoLeadForm";
+import { NovoAtendimentoForm } from "@/components/atendimentos/NovoAtendimentoForm";
+import { getAtendimentoConfig } from "@/lib/actions/atendimentos";
 import { getMidiasOrigem, getPerfisForLeads } from "@/lib/actions/leads";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 
@@ -19,7 +20,11 @@ export default async function NovoAtendimentoPage() {
     redirect("/login");
   }
 
-  const [midias, perfis] = await Promise.all([getMidiasOrigem(), getPerfisForLeads()]);
+  const [midias, perfis, config] = await Promise.all([
+    getMidiasOrigem(),
+    getPerfisForLeads(),
+    getAtendimentoConfig(),
+  ]);
 
   return (
     <div className="flex-1 space-y-4 p-4 md:p-6">
@@ -30,7 +35,11 @@ export default async function NovoAtendimentoPage() {
         <ChevronLeft className="size-4" />
         Voltar para atendimentos
       </Link>
-      <NovoLeadForm midias={midias} perfis={perfis} />
+      <NovoAtendimentoForm
+        midias={midias}
+        perfis={perfis}
+        faixaValorPercent={config?.faixa_valor_percent ?? 20}
+      />
     </div>
   );
 }

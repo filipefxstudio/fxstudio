@@ -32,15 +32,9 @@ export function getValorNumerico(imovel: Imovel): number | null {
   return imovel.valor_locacao ?? null;
 }
 
+import { getPublicImovelShareUrlClient } from "@/lib/imoveis/share-url";
+
+/** @deprecated Use getPublicImovelShareUrlClient ou getPublicImovelShareUrl */
 export function getPublicImovelUrl(corretorSlug: string, imovelSlug: string): string {
-  const mainDomain = process.env.NEXT_PUBLIC_DOMAIN || "fxstudio.com.br";
-
-  if (typeof window !== "undefined") {
-    const host = window.location.hostname;
-    if (host.includes("localhost") || host.includes("127.0.0.1")) {
-      return `${window.location.origin}/${corretorSlug}/imoveis/${imovelSlug}`;
-    }
-  }
-
-  return `https://${corretorSlug}.${mainDomain}/imoveis/${imovelSlug}`;
+  return getPublicImovelShareUrlClient(corretorSlug, imovelSlug);
 }

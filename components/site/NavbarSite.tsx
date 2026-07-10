@@ -18,7 +18,7 @@ const BASE_NAV_ITEMS = [
 ] as const;
 
 export function NavbarSite() {
-  const { corretor, link, hasImoveisLocacao } = useSite();
+  const { corretor, link, hasImoveisLocacao, hasTarja } = useSite();
   const [open, setOpen] = useState(false);
 
   const navItems = BASE_NAV_ITEMS.filter(
@@ -27,8 +27,11 @@ export function NavbarSite() {
 
   return (
     <header
-      className="sticky top-0 z-40 border-b border-white/10 bg-primary text-white"
-      style={{ backgroundColor: "var(--color-primary)" }}
+      className="sticky z-40 border-b border-white/10 bg-primary text-white"
+      style={{
+        backgroundColor: "var(--color-primary)",
+        top: hasTarja ? "2rem" : "0",
+      }}
     >
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         <Link href={link("/")} className="flex min-w-0 items-center gap-3">

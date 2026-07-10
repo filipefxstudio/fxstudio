@@ -1,22 +1,21 @@
 "use client";
 
-import { AbaAgente } from "@/components/configuracoes/AbaAgente";
+import { AbaAtendimentosConfig } from "@/components/configuracoes/AbaAtendimentosConfig";
 import { AbaEquipe } from "@/components/configuracoes/AbaEquipe";
-import { AbaFunil } from "@/components/configuracoes/AbaFunil";
-import { AbaMarcaDagua } from "@/components/configuracoes/AbaMarcaDagua";
-import { AbaMidiasOrigem } from "@/components/configuracoes/AbaMidiasOrigem";
+import { AbaImoveisConfig } from "@/components/configuracoes/AbaImoveisConfig";
 import { AbaPerfil } from "@/components/configuracoes/AbaPerfil";
 import { AbaSite } from "@/components/configuracoes/AbaSite";
-import { AbaStatusImovel } from "@/components/configuracoes/AbaStatusImovel";
-import { AbaTiposImovel } from "@/components/configuracoes/AbaTiposImovel";
 import { AbaWhatsApp } from "@/components/configuracoes/AbaWhatsApp";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { AgenteConfigPublic } from "@/lib/actions/agente-config";
 import type {
+  AtendimentoConfig,
   Corretor,
   DashboardConfig,
   MarcaDaguaConfig,
   MidiaOrigem,
+  MotivoDesativacao,
+  MotivoDescarte,
   Perfil,
   PlanoAssinatura,
   StatusImovel,
@@ -33,6 +32,10 @@ interface ConfiguracoesTabsProps {
   statusImovel: StatusImovel[];
   marcaDaguaConfig: MarcaDaguaConfig | null;
   dashboardConfig: DashboardConfig;
+  atendimentoConfig: AtendimentoConfig | null;
+  motivosDescarte: MotivoDescarte[];
+  motivosDesativacao: MotivoDesativacao[];
+  initialTab?: string;
 }
 
 export function ConfiguracoesTabs({
@@ -45,60 +48,67 @@ export function ConfiguracoesTabs({
   statusImovel,
   marcaDaguaConfig,
   dashboardConfig,
+  atendimentoConfig,
+  motivosDescarte,
+  motivosDesativacao,
+  initialTab = "perfil",
 }: ConfiguracoesTabsProps) {
+  const tabValues = [
+    "perfil",
+    "whatsapp",
+    "imoveis",
+    "atendimentos",
+    "equipe",
+    "site",
+  ] as const;
+  const defaultTab = tabValues.includes(initialTab as (typeof tabValues)[number])
+    ? initialTab
+    : "perfil";
+
   return (
-    <Tabs defaultValue="perfil" className="w-full">
+    <Tabs defaultValue={defaultTab} className="w-full">
       <TabsList className="h-auto w-full flex-wrap justify-start gap-1">
         <TabsTrigger value="perfil">Meu perfil</TabsTrigger>
-        <TabsTrigger value="site">Meu site</TabsTrigger>
         <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
-        <TabsTrigger value="agente">Agente de IA</TabsTrigger>
-        <TabsTrigger value="tipos">Tipos de imóvel</TabsTrigger>
-        <TabsTrigger value="status">Status de imóvel</TabsTrigger>
-        <TabsTrigger value="marca-dagua">Marca d&apos;água</TabsTrigger>
-        <TabsTrigger value="midias">Mídias de origem</TabsTrigger>
+        <TabsTrigger value="imoveis">Imóveis</TabsTrigger>
+        <TabsTrigger value="atendimentos">Atendimentos</TabsTrigger>
         <TabsTrigger value="equipe">Equipe</TabsTrigger>
-        <TabsTrigger value="funil">Funil</TabsTrigger>
+        <TabsTrigger value="site">Meu site</TabsTrigger>
       </TabsList>
 
       <TabsContent value="perfil">
         <AbaPerfil corretor={corretor} />
       </TabsContent>
 
-      <TabsContent value="site">
-        <AbaSite corretor={corretor} />
-      </TabsContent>
-
       <TabsContent value="whatsapp">
-        <AbaWhatsApp corretor={corretor} />
+        <AbaWhatsApp corretor={corretor} plano={plano} agenteConfig={agenteConfig} />
       </TabsContent>
 
-      <TabsContent value="agente">
-        <AbaAgente plano={plano} initialConfig={agenteConfig} />
+      <TabsContent value="imoveis">
+        <AbaImoveisConfig
+          tiposImovel={tiposImovel}
+          statusImovel={statusImovel}
+          marcaDaguaConfig={marcaDaguaConfig}
+          atendimentoConfig={atendimentoConfig}
+          motivosDesativacao={motivosDesativacao}
+        />
       </TabsContent>
 
-      <TabsContent value="tipos">
-        <AbaTiposImovel tipos={tiposImovel} />
-      </TabsContent>
-
-      <TabsContent value="status">
-        <AbaStatusImovel statusList={statusImovel} />
-      </TabsContent>
-
-      <TabsContent value="marca-dagua">
-        <AbaMarcaDagua initialConfig={marcaDaguaConfig} />
-      </TabsContent>
-
-      <TabsContent value="midias">
-        <AbaMidiasOrigem midias={midiasOrigem} />
+      <TabsContent value="atendimentos">
+        <AbaAtendimentosConfig
+          midiasOrigem={midiasOrigem}
+          initialConfig={atendimentoConfig}
+          initialMotivos={motivosDescarte}
+          dashboardConfig={dashboardConfig}
+        />
       </TabsContent>
 
       <TabsContent value="equipe">
         <AbaEquipe perfis={perfisEquipe} />
       </TabsContent>
 
-      <TabsContent value="funil">
-        <AbaFunil initialConfig={dashboardConfig} />
+      <TabsContent value="site">
+        <AbaSite corretor={corretor} />
       </TabsContent>
     </Tabs>
   );

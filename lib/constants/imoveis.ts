@@ -73,7 +73,32 @@ export const STATUS_NOME_TO_SLUG: Record<string, StatusImovelSlug> = {
   Reservado: "reservado",
   Vendido: "vendido",
   Locado: "locado",
+  Desativado: "desativado",
 };
+
+export const DESTINACOES_IMOVEL = [
+  { value: "residencial" as const, label: "Residencial" },
+  { value: "comercial" as const, label: "Comercial" },
+  { value: "rural" as const, label: "Rural" },
+];
+
+export const EXIBIR_ENDERECO_OPCOES = [
+  { value: "completo" as const, label: "Endereço completo" },
+  { value: "apenas_bairro" as const, label: "Apenas bairro" },
+  { value: "oculto" as const, label: "Oculto" },
+];
+
+export const MOTIVOS_DESATIVACAO = [
+  "Proprietário desistiu da venda/locação",
+  "Imóvel vendido por outra imobiliária",
+  "Endereço ou dados incorretos",
+  "Duplicidade de cadastro",
+  "Proprietário solicitou remoção",
+  "Outro",
+] as const;
+
+/** Status alterados automaticamente pelo sistema (proposta/negócio) */
+export const STATUS_IMOVEL_SISTEMA = ["Reservado", "Vendido", "Locado"] as const;
 
 export const COMPLEMENTO_TIPOS = [
   { value: "apartamento", label: "Apartamento" },

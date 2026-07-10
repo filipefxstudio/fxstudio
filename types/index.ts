@@ -18,7 +18,13 @@ export type LocalChaves = "imobiliaria" | "proprietario" | "portaria" | "outros"
 
 export type FinalidadeImovel = "venda" | "locacao";
 
-export type StatusImovelSlug = "disponivel" | "reservado" | "vendido" | "locado";
+export type StatusImovelSlug = "disponivel" | "reservado" | "vendido" | "locado" | "desativado";
+
+export type StatusAprovacaoImovel = "cadastro_incompleto" | "aguardando_aprovacao" | "aprovado";
+
+export type DestinacaoImovel = "residencial" | "comercial" | "rural";
+
+export type ExibirEnderecoModo = "completo" | "apenas_bairro" | "oculto";
 
 export interface StatusImovel {
   id: string;
@@ -65,6 +71,8 @@ export type EtapaLead =
 
 export type TemperaturaLead = "quente" | "morno" | "frio";
 
+export type SituacaoLead = "em_atendimento" | "descartado" | "negocio_fechado";
+
 export type OrigemLead = "site" | "whatsapp" | "portal" | "indicacao" | "manual";
 
 export type ProvedorIA = "openai" | "anthropic" | "gemini";
@@ -103,13 +111,33 @@ export interface Corretor {
   dominio_custom?: string | null;
   foto_url?: string | null;
   logo_url?: string | null;
+  logo_crm_url?: string | null;
   site_cor_primaria?: string | null;
   site_cor_secundaria?: string | null;
+  site_favicon_url?: string | null;
+  site_tarja_cor?: string | null;
+  site_nome_exibicao?: string | null;
   hero_image_url?: string | null;
+  hero_titulo?: string | null;
+  hero_subtitulo?: string | null;
   sobre?: string | null;
   sobre_titulo?: string | null;
   sobre_texto?: string | null;
   sobre_foto_url?: string | null;
+  site_sobre_titulo?: string | null;
+  site_sobre_texto?: string | null;
+  site_sobre_foto_url?: string | null;
+  site_creci?: string | null;
+  site_telefone_vendas?: string | null;
+  site_telefone_locacao?: string | null;
+  site_email?: string | null;
+  site_instagram?: string | null;
+  site_youtube?: string | null;
+  site_tiktok?: string | null;
+  site_linkedin?: string | null;
+  site_facebook?: string | null;
+  site_horario?: string | null;
+  site_endereco?: string | null;
   contato_email?: string | null;
   contato_telefone?: string | null;
   contato_endereco?: string | null;
@@ -117,8 +145,17 @@ export interface Corretor {
   whatsapp?: string | null;
   zapi_instance_id?: string | null;
   zapi_token?: string | null;
+  rodizio_ativo?: boolean;
   criado_em: string;
   atualizado_em?: string;
+}
+
+export interface MotivoDesativacao {
+  id: string;
+  corretor_id: string;
+  nome: string;
+  ativo: boolean;
+  ordem: number;
 }
 
 export interface Assinatura {
@@ -201,6 +238,52 @@ export interface MidiaOrigem {
   ordem: number;
 }
 
+export interface AuditoriaImovel {
+  id: string;
+  imovel_id: string;
+  corretor_id?: string | null;
+  perfil_id?: string | null;
+  acao: string;
+  motivo?: string | null;
+  detalhes?: Record<string, unknown> | null;
+  criado_em: string;
+  perfil?: Perfil | null;
+}
+
+export interface ImovelDesempenhoKpis {
+  totalLeads: number;
+  visitasAgendadas: number;
+  visitasRealizadas: number;
+  propostas: number;
+  negociosFechados: number;
+  visualizacoes: number;
+}
+
+export interface ImovelDesempenhoFunilItem {
+  etapa: string;
+  label: string;
+  total: number;
+}
+
+export interface ImovelDesempenhoOrigemItem {
+  origem: string;
+  label: string;
+  total: number;
+}
+
+export interface ImovelDesempenhoParecerItem {
+  parecer: string;
+  label: string;
+  total: number;
+}
+
+export interface ImovelDesempenho {
+  kpis: ImovelDesempenhoKpis;
+  funil: ImovelDesempenhoFunilItem[];
+  origem: ImovelDesempenhoOrigemItem[];
+  visitasParecer: ImovelDesempenhoParecerItem[];
+}
+
 export interface Imovel {
   id: string;
   corretor_id: string;
@@ -210,9 +293,19 @@ export interface Imovel {
   slug?: string | null;
   tipo: TipoImovel;
   finalidade: FinalidadeImovel;
+  destinacao?: DestinacaoImovel | null;
   status: StatusImovelSlug;
   status_imovel_id?: string | null;
   status_imovel?: StatusImovel | null;
+  status_aprovacao?: StatusAprovacaoImovel;
+  captador_id?: string | null;
+  captador?: Perfil | null;
+  comissao_percent?: number | null;
+  exibir_endereco_site?: ExibirEnderecoModo;
+  exibir_endereco_portais?: ExibirEnderecoModo;
+  motivo_desativacao?: string | null;
+  cadastrado_por_perfil_id?: string | null;
+  cadastrado_por?: Perfil | null;
   data_ativacao?: string | null;
   data_desativacao?: string | null;
   data_ultima_atualizacao?: string | null;
@@ -277,6 +370,9 @@ export interface Lead {
   id: string;
   corretor_id: string;
   imovel_id?: string | null;
+  perfil_id?: string | null;
+  codigo_atendimento?: string | null;
+  situacao?: SituacaoLead;
   nome?: string | null;
   telefone?: string | null;
   email?: string | null;
@@ -284,9 +380,21 @@ export interface Lead {
   tipo_imovel_busca?: string | null;
   bairros_interesse?: string[] | null;
   quartos_minimo?: number | null;
+  suites_minimas?: number | null;
+  banheiros_minimos?: number | null;
+  vagas_minimas?: number | null;
   valor_minimo?: number | null;
   valor_maximo?: number | null;
   prazo_decisao?: string | null;
+  entrada_fgts?: number | null;
+  entrada_recursos_proprios?: number | null;
+  financiamento_aprovado?: boolean;
+  possui_imovel_venda?: boolean;
+  interesse_permuta?: boolean;
+  info_permuta?: string | null;
+  obs_financeiras?: string | null;
+  data_entrada?: string | null;
+  tempo_primeira_resposta_min?: number | null;
   etapa: EtapaLead;
   temperatura: TemperaturaLead;
   origem: OrigemLead;
@@ -298,6 +406,7 @@ export interface Lead {
   criado_em: string;
   atualizado_em: string;
   imovel?: Imovel;
+  perfil?: Perfil | null;
   interacoes?: LeadInteracao[];
 }
 
@@ -373,6 +482,9 @@ export type TipoAgenda =
   | "visita"
   | "ligacao"
   | "reuniao"
+  | "whatsapp"
+  | "captacao"
+  | "email"
   | "tarefa"
   | "lembrete"
   | "outro";
@@ -471,4 +583,20 @@ export interface AuditoriaAtendimento {
   detalhes?: Record<string, unknown> | null;
   criado_em: string;
   perfil?: Perfil | null;
+}
+
+export interface AtendimentoConfig {
+  id: string;
+  corretor_id: string;
+  faixa_valor_percent: number;
+  ficha_visita_texto?: string | null;
+  criado_em: string;
+}
+
+export interface MotivoDescarte {
+  id: string;
+  corretor_id: string;
+  nome: string;
+  ativo: boolean;
+  ordem: number;
 }

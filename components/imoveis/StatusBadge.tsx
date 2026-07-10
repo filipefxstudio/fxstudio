@@ -7,6 +7,7 @@ const STATUS_COLORS: Record<StatusImovelSlug, string> = {
   reservado: "#F18F01",
   vendido: "#1E3A5F",
   locado: "#7C3AED",
+  desativado: "#6B7280",
 };
 
 interface StatusBadgeProps {

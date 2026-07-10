@@ -4,6 +4,10 @@ import { redirect } from "next/navigation";
 import { AtendimentosPage } from "@/components/atendimentos/AtendimentosPage";
 import type { LeadsFilterState } from "@/components/leads/LeadsFilters";
 import {
+  getMotivosDescarte,
+  podeTransferirAtendimento,
+} from "@/lib/actions/atendimentos";
+import {
   getLeads,
   getMidiasOrigem,
   getPerfisForLeads,
@@ -62,10 +66,14 @@ export default async function AtendimentosRoutePage({ searchParams }: PageProps)
   const params = await searchParams;
   const initialFilters = parseInitialFilters(params);
 
-  const [leads, midias, perfis] = await Promise.all([
+  const initialBusca = typeof params.busca === "string" ? params.busca : "";
+
+  const [leads, midias, perfis, motivos, podeTransferir] = await Promise.all([
     getLeads({ ativos_apenas: false }),
     getMidiasOrigem(),
     getPerfisForLeads(),
+    getMotivosDescarte(),
+    podeTransferirAtendimento(),
   ]);
 
   return (
@@ -75,7 +83,10 @@ export default async function AtendimentosRoutePage({ searchParams }: PageProps)
         corretorId={corretor.id}
         midias={midias}
         perfis={perfis}
+        motivos={motivos}
+        podeTransferir={podeTransferir}
         initialFilters={initialFilters}
+        initialBusca={initialBusca}
       />
     </div>
   );

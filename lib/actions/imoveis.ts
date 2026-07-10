@@ -1,10 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 
 import {
   IMOVEL_LIMITS,
+  STATUS_IMOVEL_SISTEMA,
   STATUS_NOME_TO_SLUG,
   STORAGE_BUCKET_IMOVEIS,
   STORAGE_BUCKET_MARCA_DAGUA,
@@ -14,7 +14,9 @@ import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 import { createClient } from "@/lib/supabase/server";
 import { createClienteFromImovel } from "@/lib/actions/clientes";
 import { buildComplementoString } from "@/lib/imoveis/form";
+import { registrarAuditoriaImovel } from "@/lib/imoveis/auditoria";
 import { applyWatermark } from "@/lib/imoveis/watermark";
+import { getPerfilForUser } from "@/lib/supabase/get-perfil";
 import { generateImovelSlug } from "@/lib/utils";
 import { imovelFormSchema, type ImovelFormValues } from "@/lib/validations/imovel";
 import type { Imovel, MarcaDaguaConfig, PlanoAssinatura, StatusImovel, StatusImovelSlug } from "@/types";
@@ -105,7 +107,8 @@ function extractStoragePathFromUrl(url: string): string | null {
   return url.slice(index + marker.length);
 }
 
-const IMOVEL_SELECT = "*, fotos:imovel_fotos(*), status_imovel:status_imovel(*), cliente:clientes(*)";
+const IMOVEL_SELECT =
+  "*, fotos:imovel_fotos(*), status_imovel:status_imovel(*), cliente:clientes(*), captador:perfis!captador_id(*), cadastrado_por:perfis!cadastrado_por_perfil_id(*)";
 
 async function getStatusById(
   corretorId: string,
@@ -215,11 +218,16 @@ export async function getStatusImovelList(corretorId?: string): Promise<StatusIm
 export async function updateImovelStatus(
   id: string,
   statusImovelId: string,
+  motivo?: string,
 ): Promise<ImovelActionResult> {
   const corretor = await getCorretorForUser();
 
   if (!corretor) {
     return { error: "Sessão expirada. Faça login novamente." };
+  }
+
+  if (!motivo?.trim()) {
+    return { error: "Informe o motivo da alteração de status." };
   }
 
   const owns = await ensureImovelOwnership(id, corretor.id);
@@ -234,6 +242,16 @@ export async function updateImovelStatus(
     return { error: "Status não encontrado." };
   }
 
+  if ((STATUS_IMOVEL_SISTEMA as readonly string[]).includes(status.nome)) {
+    return { error: "Este status só pode ser alterado automaticamente pelo sistema." };
+  }
+
+  const { data: imovelAtual } = await (await createClient())
+    .from("imoveis")
+    .select("status_imovel_id, status_imovel:status_imovel(nome)")
+    .eq("id", id)
+    .maybeSingle();
+
   const slug = slugFromStatusRecord(status);
   const supabase = await createClient();
 
@@ -242,7 +260,7 @@ export async function updateImovelStatus(
     status: slug,
   };
 
-  if (slug === "vendido" || slug === "locado") {
+  if (slug === "vendido" || slug === "locado" || slug === "desativado") {
     updatePayload.data_desativacao = new Date().toISOString();
   }
 
@@ -257,10 +275,235 @@ export async function updateImovelStatus(
     return { error: "Não foi possível alterar o status." };
   }
 
+  const statusAnterior = (
+    imovelAtual?.status_imovel as { nome?: string } | { nome?: string }[] | null
+  );
+  const nomeAnterior = Array.isArray(statusAnterior)
+    ? statusAnterior[0]?.nome
+    : statusAnterior?.nome;
+
+  await registrarAuditoriaImovel(id, "status_alterado", {
+    motivo: motivo.trim(),
+    detalhes: {
+      status_anterior: nomeAnterior ?? null,
+      status_novo: status.nome,
+    },
+  });
+
   revalidatePath("/dashboard/imoveis");
   revalidatePath(`/dashboard/imoveis/${id}`);
 
   return { success: true, imovelId: id };
+}
+
+export async function desativarImovel(
+  id: string,
+  motivo: string,
+  infoAdicional?: string,
+): Promise<ImovelActionResult> {
+  const corretor = await getCorretorForUser();
+
+  if (!corretor) {
+    return { error: "Sessão expirada. Faça login novamente." };
+  }
+
+  if (!motivo.trim()) {
+    return { error: "Selecione o motivo da desativação." };
+  }
+
+  if (motivo === "Outro" && !infoAdicional?.trim()) {
+    return { error: "Informe os detalhes da desativação." };
+  }
+
+  const owns = await ensureImovelOwnership(id, corretor.id);
+  if (!owns) {
+    return { error: "Imóvel não encontrado." };
+  }
+
+  const supabase = await createClient();
+  const { data: statusDesativado } = await supabase
+    .from("status_imovel")
+    .select("id")
+    .eq("corretor_id", corretor.id)
+    .eq("nome", "Desativado")
+    .maybeSingle();
+
+  if (!statusDesativado) {
+    return { error: "Status Desativado não configurado." };
+  }
+
+  const motivoCompleto =
+    motivo === "Outro" && infoAdicional?.trim()
+      ? `${motivo}: ${infoAdicional.trim()}`
+      : motivo.trim();
+
+  const { error } = await supabase
+    .from("imoveis")
+    .update({
+      status_imovel_id: statusDesativado.id,
+      status: "desativado",
+      motivo_desativacao: motivoCompleto,
+      data_desativacao: new Date().toISOString(),
+      publicado_site: false,
+      publicado_portais: false,
+    })
+    .eq("id", id)
+    .eq("corretor_id", corretor.id);
+
+  if (error) {
+    console.error("[desativarImovel] failed", error);
+    return { error: "Não foi possível desativar o imóvel." };
+  }
+
+  await registrarAuditoriaImovel(id, "imovel_desativado", {
+    motivo: motivoCompleto,
+  });
+
+  revalidatePath("/dashboard/imoveis");
+  revalidatePath(`/dashboard/imoveis/${id}`);
+
+  return { success: true, imovelId: id };
+}
+
+/** @deprecated Use updateImovelStatus com motivo */
+export async function alterarStatusImovel(
+  id: string,
+  statusImovelId: string,
+  motivo: string,
+): Promise<ImovelActionResult> {
+  return updateImovelStatus(id, statusImovelId, motivo);
+}
+
+export async function enviarImovelParaAprovacao(id: string): Promise<ImovelActionResult> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) {
+    return { error: "Sessão expirada. Faça login novamente." };
+  }
+
+  const owns = await ensureImovelOwnership(id, corretor.id);
+  if (!owns) {
+    return { error: "Imóvel não encontrado." };
+  }
+
+  const supabase = await createClient();
+  const { data: imovel, error: fetchError } = await supabase
+    .from("imoveis")
+    .select("status_aprovacao")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (fetchError || !imovel) {
+    return { error: "Imóvel não encontrado." };
+  }
+
+  if (imovel.status_aprovacao !== "cadastro_incompleto") {
+    return { error: "Este imóvel não está em cadastro incompleto." };
+  }
+
+  const { error } = await supabase
+    .from("imoveis")
+    .update({ status_aprovacao: "aguardando_aprovacao" })
+    .eq("id", id)
+    .eq("corretor_id", corretor.id);
+
+  if (error) {
+    return { error: "Não foi possível enviar para aprovação." };
+  }
+
+  await registrarAuditoriaImovel(id, "enviado_aprovacao");
+
+  revalidatePath("/dashboard/imoveis");
+  revalidatePath(`/dashboard/imoveis/${id}`);
+  revalidatePath("/dashboard");
+
+  return { success: true, imovelId: id };
+}
+
+export async function aprovarImovel(id: string, motivo?: string): Promise<ImovelActionResult> {
+  const corretor = await getCorretorForUser();
+  const perfil = await getPerfilForUser();
+
+  if (!corretor) {
+    return { error: "Sessão expirada. Faça login novamente." };
+  }
+
+  if (!perfil || (perfil.papel !== "gerente" && perfil.papel !== "admin")) {
+    return { error: "Sem permissão para aprovar imóveis." };
+  }
+
+  const owns = await ensureImovelOwnership(id, corretor.id);
+  if (!owns) {
+    return { error: "Imóvel não encontrado." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("imoveis")
+    .update({ status_aprovacao: "aprovado" })
+    .eq("id", id)
+    .eq("corretor_id", corretor.id);
+
+  if (error) {
+    return { error: "Não foi possível aprovar o imóvel." };
+  }
+
+  await registrarAuditoriaImovel(id, "imovel_aprovado", {
+    motivo: motivo?.trim() || null,
+  });
+
+  revalidatePath("/dashboard/imoveis");
+  revalidatePath(`/dashboard/imoveis/${id}`);
+  revalidatePath("/dashboard");
+
+  return { success: true, imovelId: id };
+}
+
+export async function atualizarStatusImovelAutomatico(
+  imovelId: string,
+  statusNome: "Reservado" | "Vendido" | "Locado",
+  motivo: string,
+  detalhes?: Record<string, unknown>,
+): Promise<void> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) {
+    return;
+  }
+
+  const supabase = await createClient();
+  const { data: status } = await supabase
+    .from("status_imovel")
+    .select("*")
+    .eq("corretor_id", corretor.id)
+    .eq("nome", statusNome)
+    .maybeSingle();
+
+  if (!status) {
+    return;
+  }
+
+  const slug = slugFromStatusRecord(status as StatusImovel);
+  const updatePayload: Record<string, unknown> = {
+    status_imovel_id: status.id,
+    status: slug,
+  };
+
+  if (slug === "vendido" || slug === "locado") {
+    updatePayload.data_desativacao = new Date().toISOString();
+  }
+
+  await supabase
+    .from("imoveis")
+    .update(updatePayload)
+    .eq("id", imovelId)
+    .eq("corretor_id", corretor.id);
+
+  await registrarAuditoriaImovel(imovelId, "status_automatico", {
+    motivo,
+    detalhes: { status: statusNome, ...detalhes },
+  });
+
+  revalidatePath("/dashboard/imoveis");
+  revalidatePath(`/dashboard/imoveis/${imovelId}`);
 }
 
 export async function validarAtualizacao(id: string): Promise<ImovelActionResult & { data?: string }> {
@@ -289,6 +532,8 @@ export async function validarAtualizacao(id: string): Promise<ImovelActionResult
     console.error("[validarAtualizacao] failed", error);
     return { error: "Não foi possível registrar a atualização." };
   }
+
+  await registrarAuditoriaImovel(id, "atualizacao_validada");
 
   revalidatePath(`/dashboard/imoveis/${id}`);
 
@@ -422,6 +667,11 @@ function buildImovelFields(data: ImovelFormValues) {
     vagas_tipo: data.vagas_tipo?.trim() || null,
     vagas_cobertura: data.vagas_cobertura?.trim() || null,
     cliente_id: data.cliente_id ?? null,
+    captador_id: data.captador_id,
+    comissao_percent: data.comissao_percent,
+    destinacao: data.destinacao,
+    exibir_endereco_site: data.exibir_endereco_site,
+    exibir_endereco_portais: data.exibir_endereco_portais,
   };
 }
 
@@ -432,6 +682,7 @@ function buildImovelInsert(
   codigo: string,
   clienteId: string | null,
   statusSlug: StatusImovelSlug,
+  cadastradoPorPerfilId: string | null,
 ) {
   return {
     corretor_id: corretorId,
@@ -442,7 +693,9 @@ function buildImovelInsert(
     finalidade: data.finalidade,
     status: statusSlug,
     status_imovel_id: data.status_imovel_id,
+    status_aprovacao: "cadastro_incompleto",
     data_ativacao: new Date().toISOString(),
+    cadastrado_por_perfil_id: cadastradoPorPerfilId,
     cep: sanitizeCep(data.cep),
     logradouro: data.logradouro.trim(),
     numero: data.numero.trim(),
@@ -842,10 +1095,21 @@ export async function createImovel(
   }
 
   const statusSlug = await resolveStatusSlug(corretor.id, data.status_imovel_id);
+  const perfil = await getPerfilForUser();
 
   const { data: imovel, error: insertError } = await supabase
     .from("imoveis")
-    .insert(buildImovelInsert(corretor.id, data, slug, codigo, clienteId, statusSlug))
+    .insert(
+      buildImovelInsert(
+        corretor.id,
+        data,
+        slug,
+        codigo,
+        clienteId,
+        statusSlug,
+        perfil?.id ?? null,
+      ),
+    )
     .select("id")
     .single();
 
@@ -853,6 +1117,10 @@ export async function createImovel(
     console.error("[createImovel] insert failed", insertError);
     return { error: "Não foi possível cadastrar o imóvel. Tente novamente." };
   }
+
+  await registrarAuditoriaImovel(imovel.id, "imovel_cadastrado", {
+    detalhes: { codigo },
+  });
 
   const uploadedPaths: string[] = [];
 
@@ -934,7 +1202,8 @@ export async function createImovel(
   }
 
   revalidatePath("/dashboard/imoveis");
-  redirect("/dashboard/imoveis");
+
+  return { success: true, imovelId: imovel.id };
 }
 
 export async function updateImovel(
@@ -992,6 +1261,8 @@ export async function updateImovel(
     console.error("[updateImovel] update failed", updateError);
     return { error: "Não foi possível atualizar o imóvel." };
   }
+
+  await registrarAuditoriaImovel(id, "imovel_editado");
 
   const { data: existingFotos, error: fotosError } = await supabase
     .from("imovel_fotos")
@@ -1061,5 +1332,6 @@ export async function updateImovel(
 
   revalidatePath("/dashboard/imoveis");
   revalidatePath(`/dashboard/imoveis/${id}`);
-  redirect(`/dashboard/imoveis/${id}`);
+
+  return { success: true, imovelId: id };
 }

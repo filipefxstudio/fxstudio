@@ -25,7 +25,7 @@ interface AbaEquipeProps {
 
 const papelLabels: Record<PapelUsuario, string> = {
   admin: "Admin",
-  gerente: "Gerente",
+  gerente: "Gerente/Diretor",
   corretor: "Corretor",
 };
 

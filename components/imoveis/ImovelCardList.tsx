@@ -24,6 +24,14 @@ import {
 } from "@/lib/site/format";
 import type { Imovel, StatusImovel } from "@/types";
 
+function formatCaptadorLinha(imovel: Imovel, codigo: string): string {
+  const captador = imovel.captador?.nome;
+  if (captador) {
+    return `${codigo} • ${captador}`;
+  }
+  return codigo;
+}
+
 interface ImovelListItemProps {
   imovel: Imovel;
   corretorSlug: string;
@@ -41,11 +49,10 @@ function ImovelListItem({ imovel, corretorSlug, statusList }: ImovelListItemProp
 
   return (
     <article className="group overflow-hidden rounded-xl bg-card shadow-sm transition-shadow hover:shadow-md">
-      <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
-        <Link
-          href={`/dashboard/imoveis/${imovel.id}`}
-          className="flex min-w-0 flex-1 flex-col gap-4 sm:flex-row sm:items-center"
-        >
+      <Link
+        href={`/dashboard/imoveis/${imovel.id}`}
+        className="flex flex-col gap-4 p-4 pb-2 sm:flex-row sm:items-center"
+      >
         <div className="relative size-full shrink-0 overflow-hidden rounded-lg bg-muted sm:size-32">
           {capa ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -66,7 +73,7 @@ function ImovelListItem({ imovel, corretorSlug, statusList }: ImovelListItemProp
 
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
+            <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-xs text-muted-foreground">
                   {getTipoLabel(imovel.tipo)} • {getFinalidadeLabel(imovel.finalidade)}
@@ -75,12 +82,13 @@ function ImovelListItem({ imovel, corretorSlug, statusList }: ImovelListItemProp
                   <StatusBadge status={imovel.status} statusImovel={imovel.status_imovel} />
                 </span>
               </div>
-              <p className="mt-1 text-base font-bold text-foreground">{imovel.bairro ?? "—"}</p>
+              <p className="mt-1 truncate text-base font-bold text-foreground">
+                {imovel.bairro ?? "—"}
+              </p>
               <p className="text-sm text-muted-foreground">{formatEnderecoCurto(imovel)}</p>
             </div>
-            <div className="text-right">
+            <div className="shrink-0 text-right">
               <p className="text-xl font-black text-primary">{valorFormatado}</p>
-              <p className="text-xs text-muted-foreground">{codigo}</p>
             </div>
           </div>
 
@@ -111,16 +119,19 @@ function ImovelListItem({ imovel, corretorSlug, statusList }: ImovelListItemProp
             </span>
           </div>
         </div>
-        </Link>
+      </Link>
 
-        <div className="flex shrink-0 items-center sm:flex-col">
-          <ImovelAcoesDropdown
-            imovel={imovel}
-            corretorSlug={corretorSlug}
-            statusList={statusList}
-            variant="card"
-          />
-        </div>
+      <div className="flex items-center justify-between gap-2 px-4 pb-4 pt-1">
+        <p className="min-w-0 truncate text-xs text-muted-foreground">
+          {formatCaptadorLinha(imovel, codigo)}
+        </p>
+        <ImovelAcoesDropdown
+          imovel={imovel}
+          corretorSlug={corretorSlug}
+          statusList={statusList}
+          variant="card"
+          className="shrink-0"
+        />
       </div>
     </article>
   );

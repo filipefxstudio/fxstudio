@@ -4,11 +4,14 @@ import { notFound, redirect } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 
 import { AtendimentoClient } from "@/components/atendimentos/AtendimentoClient";
-import { getAtendimentoCompleto } from "@/lib/actions/atendimentos";
-import { parseLeadObservacoes } from "@/lib/leads/observacoes";
+import {
+  getAtendimentoCompleto,
+  getImoveisRadar,
+  getMotivosDescarte,
+  podeTransferirAtendimento,
+} from "@/lib/actions/atendimentos";
+import { getPerfisForLeads } from "@/lib/actions/leads";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
-import { createClient } from "@/lib/supabase/server";
-import type { Imovel } from "@/types";
 
 export const metadata: Metadata = {
   title: "Atendimento | FX Studio",
@@ -34,29 +37,13 @@ export default async function AtendimentoDetailPage({ params }: PageProps) {
   }
 
   const { lead, visitas, propostas, negocios, imoveisSelecionados, auditoria } = data;
-  const { meta } = parseLeadObservacoes(lead.observacoes);
-  const imovelIds = new Set<string>();
-  if (lead.imovel_id) imovelIds.add(lead.imovel_id);
-  for (const imovelId of meta.imoveis_indicados ?? []) imovelIds.add(imovelId);
-  for (const v of visitas) if (v.imovel_id) imovelIds.add(v.imovel_id);
-  for (const s of imoveisSelecionados) imovelIds.add(s.imovel_id);
 
-  let imoveisMap: Record<string, Imovel> = {};
-
-  if (imovelIds.size > 0) {
-    const supabase = await createClient();
-    const { data: imoveisData } = await supabase
-      .from("imoveis")
-      .select("*, fotos:imovel_fotos(*)")
-      .eq("corretor_id", corretor.id)
-      .in("id", Array.from(imovelIds));
-
-    imoveisMap = Object.fromEntries(
-      ((imoveisData ?? []) as Imovel[]).map((imovel) => [imovel.id, imovel]),
-    );
-  }
-
-  const perfis = await import("@/lib/actions/leads").then((m) => m.getPerfisForLeads());
+  const [perfis, imoveisRadar, motivos, podeTransferir] = await Promise.all([
+    getPerfisForLeads(),
+    getImoveisRadar(id),
+    getMotivosDescarte(),
+    podeTransferirAtendimento(),
+  ]);
 
   return (
     <div className="flex-1 space-y-4 p-4 md:p-6">
@@ -71,12 +58,14 @@ export default async function AtendimentoDetailPage({ params }: PageProps) {
       <AtendimentoClient
         lead={lead}
         perfis={perfis}
-        imoveisMap={imoveisMap}
+        imoveisRadar={imoveisRadar}
         visitas={visitas}
         propostas={propostas}
         negocios={negocios}
         imoveisSelecionados={imoveisSelecionados}
         auditoria={auditoria}
+        motivos={motivos}
+        podeTransferir={podeTransferir}
       />
     </div>
   );

@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, X } from "lucide-react";
 
 import { ImovelCardGrid } from "@/components/imoveis/ImovelCardGrid";
 import { ImovelCardList } from "@/components/imoveis/ImovelCardList";
 import {
+  buildImoveisFilterTags,
   countActiveFilters,
   defaultImoveisFilters,
   ImoveisFilters,
@@ -26,6 +27,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { getImovelCodigo, getValorNumerico } from "@/lib/imoveis/format";
+import { contemNormalizado } from "@/lib/utils/normalizar";
 import type { Imovel, StatusImovel } from "@/types";
 
 const VIEW_MODE_STORAGE_KEY = "fxstudio-imoveis-view";
@@ -35,6 +37,8 @@ interface ImoveisListingProps {
   imoveis: Imovel[];
   corretorSlug: string;
   statusList: StatusImovel[];
+  initialBusca?: string;
+  initialBairro?: string;
 }
 
 function matchesMinimo(
@@ -54,16 +58,16 @@ function matchesSearch(imovel: Imovel, query: string): boolean {
     return true;
   }
 
-  const normalized = query.trim().toLowerCase();
-  const codigo = getImovelCodigo(imovel).toLowerCase();
-  const codigoRaw = imovel.codigo?.toLowerCase() ?? "";
+  const codigo = getImovelCodigo(imovel);
+  const captadorNome = imovel.captador?.nome ?? "";
 
   return (
-    codigo.includes(normalized) ||
-    codigoRaw.includes(normalized) ||
-    (imovel.bairro?.toLowerCase().includes(normalized) ?? false) ||
-    (imovel.logradouro?.toLowerCase().includes(normalized) ?? false) ||
-    (imovel.titulo?.toLowerCase().includes(normalized) ?? false)
+    contemNormalizado(codigo, query) ||
+    contemNormalizado(imovel.codigo, query) ||
+    contemNormalizado(imovel.bairro, query) ||
+    contemNormalizado(imovel.logradouro, query) ||
+    contemNormalizado(imovel.titulo, query) ||
+    contemNormalizado(captadorNome, query)
   );
 }
 
@@ -72,15 +76,21 @@ function matchesFilters(imovel: Imovel, filters: ImoveisFilterState): boolean {
     return false;
   }
 
-  if (filters.tipo !== "all" && imovel.tipo !== filters.tipo) {
+  if (filters.tipos.length > 0 && !filters.tipos.includes(imovel.tipo)) {
     return false;
   }
 
-  if (filters.statusId !== "all" && imovel.status_imovel_id !== filters.statusId) {
+  if (
+    filters.statusIds.length > 0 &&
+    (!imovel.status_imovel_id || !filters.statusIds.includes(imovel.status_imovel_id))
+  ) {
     return false;
   }
 
-  if (filters.bairro && imovel.bairro?.toLowerCase() !== filters.bairro.toLowerCase()) {
+  if (
+    filters.bairros.length > 0 &&
+    (!imovel.bairro || !filters.bairros.some((b) => b.toLowerCase() === imovel.bairro?.toLowerCase()))
+  ) {
     return false;
   }
 
@@ -148,7 +158,7 @@ function sortImoveis(imoveis: Imovel[], sort: ImoveisSortOption): Imovel[] {
       case "bairro_asc":
         return (a.bairro ?? "").localeCompare(b.bairro ?? "", "pt-BR");
       case "captador_asc":
-        return (a.titulo ?? a.codigo ?? "").localeCompare(b.titulo ?? b.codigo ?? "", "pt-BR");
+        return (a.captador?.nome ?? "").localeCompare(b.captador?.nome ?? "", "pt-BR");
       case "area_desc":
         return (b.area_util ?? 0) - (a.area_util ?? 0);
       case "area_asc":
@@ -161,12 +171,34 @@ function sortImoveis(imoveis: Imovel[], sort: ImoveisSortOption): Imovel[] {
   return sorted;
 }
 
-export function ImoveisListing({ imoveis, corretorSlug, statusList }: ImoveisListingProps) {
-  const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState<ImoveisFilterState>(defaultImoveisFilters);
+export function ImoveisListing({
+  imoveis,
+  corretorSlug,
+  statusList,
+  initialBusca = "",
+  initialBairro = "",
+}: ImoveisListingProps) {
+  const [search, setSearch] = useState(initialBusca);
+  const [filters, setFilters] = useState<ImoveisFilterState>(() => ({
+    ...defaultImoveisFilters,
+    ...(initialBairro ? { bairros: [initialBairro] } : {}),
+  }));
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ImoveisViewMode>("grid");
   const [sort, setSort] = useState<ImoveisSortOption>("cadastro_desc");
+
+  useEffect(() => {
+    if (initialBusca) {
+      setSearch(initialBusca);
+    }
+  }, [initialBusca]);
+
+  useEffect(() => {
+    if (initialBairro) {
+      setFilters((prev) => ({ ...prev, bairros: [initialBairro] }));
+      setFiltersOpen(true);
+    }
+  }, [initialBairro]);
 
   useEffect(() => {
     const storedView = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
@@ -199,6 +231,11 @@ export function ImoveisListing({ imoveis, corretorSlug, statusList }: ImoveisLis
     }
     return Array.from(unique).sort((a, b) => a.localeCompare(b, "pt-BR"));
   }, [imoveis]);
+
+  const filterTags = useMemo(
+    () => buildImoveisFilterTags(filters, statusList),
+    [filters, statusList],
+  );
 
   const filteredImoveis = useMemo(
     () =>
@@ -263,6 +300,22 @@ export function ImoveisListing({ imoveis, corretorSlug, statusList }: ImoveisLis
         sort={sort}
         onSortChange={handleSortChange}
       />
+
+      {filterTags.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {filterTags.map((tag) => (
+            <button
+              key={tag.key}
+              type="button"
+              onClick={() => setFilters(tag.onRemove())}
+              className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2.5 py-1 text-xs hover:bg-muted"
+            >
+              {tag.label}
+              <X className="size-3" />
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {filtersOpen ? (
         <ImoveisFilters

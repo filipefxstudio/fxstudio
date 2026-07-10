@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { notificarCorretorNovoLead } from "@/lib/site/email";
+import {
+  notificarCorretorContatoSite,
+  notificarCorretorInteresseImovel,
+} from "@/lib/site/email";
+import { getSiteEmail } from "@/lib/site/social";
 import { getCorretorByDominio, getCorretorBySlug } from "@/lib/site/queries";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
 
@@ -22,7 +26,7 @@ async function resolveCorretor(body: SiteLeadBody, tenantHeader: string | null) 
     const supabase = createServiceRoleClient();
     const { data } = await supabase
       .from("corretores")
-      .select("id, nome, email, contato_email")
+      .select("*")
       .eq("id", body.corretor_id)
       .maybeSingle();
     return data;
@@ -105,14 +109,36 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Não foi possível registrar seu contato." }, { status: 500 });
   }
 
-  const emailDestino = corretor.contato_email ?? corretor.email;
-  await notificarCorretorNovoLead({
-    email: emailDestino,
-    corretorNome: corretor.nome,
-    leadNome: nome,
-    leadTelefone: telefone,
-    observacoes,
-  });
+  const emailDestino = getSiteEmail(corretor);
+
+  if (body.imovel_id) {
+    const { data: imovel } = await supabase
+      .from("imoveis")
+      .select("titulo, codigo, codigo_personalizado")
+      .eq("id", body.imovel_id)
+      .maybeSingle();
+
+    await notificarCorretorInteresseImovel({
+      email: emailDestino,
+      corretorNome: corretor.nome,
+      leadNome: nome,
+      leadTelefone: telefone,
+      leadEmail: body.email?.trim() || null,
+      imovelTitulo: imovel?.titulo ?? "Imóvel",
+      imovelCodigo: imovel?.codigo_personalizado ?? imovel?.codigo ?? null,
+      observacoes: body.observacoes?.trim() || null,
+      preferenciaContato: body.preferencia_contato?.trim() || null,
+    });
+  } else {
+    await notificarCorretorContatoSite({
+      email: emailDestino,
+      corretorNome: corretor.nome,
+      leadNome: nome,
+      leadTelefone: telefone,
+      leadEmail: body.email?.trim() || null,
+      observacoes: body.observacoes?.trim() || null,
+    });
+  }
 
   return NextResponse.json({
     success: true,

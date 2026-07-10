@@ -3,6 +3,11 @@ import { Clock, Mail, MapPin, MessageCircle, Phone } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { sitePath } from "@/lib/site/paths";
+import {
+  getSiteCreci,
+  getSiteEmail,
+  getSiteNomeExibicao,
+} from "@/lib/site/social";
 import { buildWhatsAppUrl, buildContatoWhatsAppMessage } from "@/lib/site/whatsapp";
 import type { Corretor } from "@/types";
 
@@ -12,28 +17,33 @@ interface SiteSobreContentProps {
 }
 
 export function SiteSobreContent({ corretor, basePath }: SiteSobreContentProps) {
-  const titulo = corretor.sobre_titulo ?? `Sobre ${corretor.nome}`;
+  const titulo =
+    corretor.site_sobre_titulo ??
+    corretor.sobre_titulo ??
+    `Sobre ${getSiteNomeExibicao(corretor)}`;
   const texto =
+    corretor.site_sobre_texto ??
     corretor.sobre_texto ??
     corretor.sobre ??
     "Corretor de imóveis dedicado a encontrar a melhor oportunidade para compra ou locação, com atendimento personalizado e transparência em cada etapa.";
+  const fotoUrl = corretor.site_sobre_foto_url ?? corretor.sobre_foto_url;
+  const creci = getSiteCreci(corretor);
   const whatsappUrl = buildWhatsAppUrl(corretor, buildContatoWhatsAppMessage());
-  const telefone = corretor.contato_telefone ?? corretor.telefone;
-  const email = corretor.contato_email ?? corretor.email;
+  const telefone =
+    corretor.site_telefone_vendas ?? corretor.contato_telefone ?? corretor.telefone;
+  const email = getSiteEmail(corretor);
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6 lg:px-8">
       <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div>
           <h1 className="text-3xl font-bold text-primary">{titulo}</h1>
-          {corretor.creci ? (
-            <p className="mt-2 text-muted-foreground">CRECI {corretor.creci}</p>
-          ) : null}
+          {creci ? <p className="mt-2 text-muted-foreground">CRECI {creci}</p> : null}
 
-          {corretor.sobre_foto_url ? (
+          {fotoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={corretor.sobre_foto_url}
+              src={fotoUrl}
               alt={titulo}
               className="mt-8 aspect-[4/3] w-full max-w-xl rounded-2xl object-cover"
             />
@@ -66,16 +76,16 @@ export function SiteSobreContent({ corretor, basePath }: SiteSobreContentProps) 
               <Mail className="mt-0.5 size-4 shrink-0 text-primary" />
               {email}
             </li>
-            {corretor.contato_endereco ? (
+            {(corretor.site_endereco ?? corretor.contato_endereco) ? (
               <li className="flex items-start gap-3">
                 <MapPin className="mt-0.5 size-4 shrink-0 text-primary" />
-                {corretor.contato_endereco}
+                {corretor.site_endereco ?? corretor.contato_endereco}
               </li>
             ) : null}
-            {corretor.contato_horario ? (
+            {(corretor.site_horario ?? corretor.contato_horario) ? (
               <li className="flex items-start gap-3">
                 <Clock className="mt-0.5 size-4 shrink-0 text-primary" />
-                {corretor.contato_horario}
+                {corretor.site_horario ?? corretor.contato_horario}
               </li>
             ) : null}
           </ul>

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { ETAPAS_LEAD, isEtapaLead } from "@/lib/constants/leads";
 import { podeAvancarEtapa } from "@/lib/leads/etapa-order";
+import { calcularTempoPrimeiraRespostaIfNeeded } from "@/lib/leads/primeira-resposta";
 import {
   mergeLeadObservacoesMeta,
   parseLeadObservacoes,
@@ -12,12 +13,17 @@ import {
 } from "@/lib/leads/observacoes";
 import { getMidiasOrigem as getMidiasOrigemConfig } from "@/lib/actions/configuracoes";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
+import {
+  isSchemaMismatchError,
+  logPostgrestError,
+} from "@/lib/supabase/postgrest-error";
 import { createClient } from "@/lib/supabase/server";
 import type {
   EtapaLead,
   Lead,
   LeadInteracao,
   MidiaOrigem,
+  Perfil,
   TemperaturaLead,
   TipoInteracao,
 } from "@/types";
@@ -86,6 +92,7 @@ export interface InteracaoInput {
   tipo: TipoInteracao;
   descricao: string;
   data?: string;
+  contarPrimeiraResposta?: boolean;
 }
 
 function sanitizeTelefone(telefone: string): string {
@@ -121,6 +128,9 @@ function applyClientSideFilters(leads: Lead[], filters?: LeadsFilterParams): Lea
 
   return leads.filter((lead) => {
     if (filters.ativos_apenas !== false) {
+      if (lead.situacao === "descartado" || lead.situacao === "negocio_fechado") {
+        return false;
+      }
       if (lead.etapa === "fechado" || lead.etapa === "perdido") {
         return false;
       }
@@ -152,8 +162,8 @@ function applyClientSideFilters(leads: Lead[], filters?: LeadsFilterParams): Lea
     }
 
     if (filters.perfil_id) {
-      const { meta } = parseLeadObservacoes(lead.observacoes);
-      if (meta.perfil_id !== filters.perfil_id) {
+      const leadPerfilId = lead.perfil_id ?? parseLeadObservacoes(lead.observacoes).meta.perfil_id;
+      if (leadPerfilId !== filters.perfil_id) {
         return false;
       }
     }
@@ -176,6 +186,120 @@ export async function getMidiasOrigem(): Promise<MidiaOrigem[]> {
   return getMidiasOrigemConfig();
 }
 
+const LEADS_LIST_SELECT_TIERS = [
+  "*, imovel:imoveis!leads_imovel_id_fkey(*), perfil:perfis!perfil_id(id, nome)",
+  "*, imovel:imoveis!leads_imovel_id_fkey(*)",
+  "*",
+] as const;
+
+function applyLeadsQueryFilters<T extends { eq: (column: string, value: string) => T }>(
+  query: T,
+  filters?: LeadsFilterParams,
+): T {
+  let next = query;
+
+  if (filters?.temperatura) {
+    next = next.eq("temperatura", filters.temperatura);
+  }
+
+  if (filters?.etapa) {
+    next = next.eq("etapa", filters.etapa);
+  }
+
+  if (filters?.finalidade_busca) {
+    next = next.eq("finalidade_busca", filters.finalidade_busca);
+  }
+
+  if (filters?.finalidade) {
+    next = next.eq("finalidade_busca", filters.finalidade);
+  }
+
+  return next;
+}
+
+async function enrichLeadsWithPerfis(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  corretorId: string,
+  leads: Lead[],
+): Promise<Lead[]> {
+  const perfilIds = new Set<string>();
+
+  for (const lead of leads) {
+    if (lead.perfil) {
+      continue;
+    }
+
+    const perfilId = lead.perfil_id ?? parseLeadObservacoes(lead.observacoes).meta.perfil_id;
+    if (perfilId) {
+      perfilIds.add(perfilId);
+    }
+  }
+
+  if (perfilIds.size === 0) {
+    return leads;
+  }
+
+  const { data: perfis, error } = await supabase
+    .from("perfis")
+    .select("id, nome")
+    .eq("corretor_id", corretorId)
+    .in("id", Array.from(perfilIds));
+
+  if (error) {
+    logPostgrestError("getLeads.enrichPerfis", error);
+    return leads;
+  }
+
+  const perfilById = new Map(
+    (perfis ?? []).map((perfil) => [perfil.id, perfil as Pick<Perfil, "id" | "nome">]),
+  );
+
+  return leads.map((lead) => {
+    if (lead.perfil) {
+      return lead;
+    }
+
+    const perfilId = lead.perfil_id ?? parseLeadObservacoes(lead.observacoes).meta.perfil_id;
+    const perfil = perfilId ? perfilById.get(perfilId) : undefined;
+
+    return perfil ? { ...lead, perfil: perfil as Perfil } : lead;
+  });
+}
+
+async function fetchLeadsRows(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  corretorId: string,
+  filters?: LeadsFilterParams,
+): Promise<Lead[]> {
+  for (let tier = 0; tier < LEADS_LIST_SELECT_TIERS.length; tier += 1) {
+    const { data, error } = await applyLeadsQueryFilters(
+      supabase
+        .from("leads")
+        .select(LEADS_LIST_SELECT_TIERS[tier] as "*")
+        .eq("corretor_id", corretorId)
+        .order("criado_em", { ascending: false }),
+      filters,
+    );
+
+    if (!error) {
+      const leads = (data ?? []) as Lead[];
+      const usedPerfilEmbed = tier === 0;
+      return usedPerfilEmbed ? leads : enrichLeadsWithPerfis(supabase, corretorId, leads);
+    }
+
+    const hasFallback = tier < LEADS_LIST_SELECT_TIERS.length - 1;
+    if (hasFallback && isSchemaMismatchError(error)) {
+      logPostgrestError(`getLeads.tier${tier}`, error);
+      continue;
+    }
+
+    logPostgrestError("getLeads", error);
+    return [];
+  }
+
+  return [];
+}
+
 export async function getLeads(filters?: LeadsFilterParams): Promise<Lead[]> {
   const corretor = await getCorretorForUser();
 
@@ -184,38 +308,15 @@ export async function getLeads(filters?: LeadsFilterParams): Promise<Lead[]> {
   }
 
   const supabase = await createClient();
-  let query = supabase
-    .from("leads")
-    .select("*, imovel:imoveis(*)")
-    .eq("corretor_id", corretor.id)
-    .order("criado_em", { ascending: false });
-
-  if (filters?.temperatura) {
-    query = query.eq("temperatura", filters.temperatura);
-  }
-
-  if (filters?.etapa) {
-    query = query.eq("etapa", filters.etapa);
-  }
-
-  if (filters?.finalidade_busca) {
-    query = query.eq("finalidade_busca", filters.finalidade_busca);
-  }
-
-  if (filters?.finalidade) {
-    query = query.eq("finalidade_busca", filters.finalidade);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    console.error("[getLeads] failed", error);
-    return [];
-  }
-
-  const leads = (data ?? []) as Lead[];
+  const leads = await fetchLeadsRows(supabase, corretor.id, filters);
   return applyClientSideFilters(leads, filters);
 }
+
+const LEAD_DETAIL_SELECT_TIERS = [
+  "*, imovel:imoveis!leads_imovel_id_fkey(*), interacoes:lead_interacoes(*)",
+  "*, imovel:imoveis!leads_imovel_id_fkey(*)",
+  "*",
+] as const;
 
 export async function getLeadById(id: string): Promise<Lead | null> {
   const corretor = await getCorretorForUser();
@@ -225,27 +326,42 @@ export async function getLeadById(id: string): Promise<Lead | null> {
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("leads")
-    .select("*, imovel:imoveis(*), interacoes:lead_interacoes(*)")
-    .eq("id", id)
-    .eq("corretor_id", corretor.id)
-    .maybeSingle();
 
-  if (error || !data) {
-    console.error("[getLeadById] failed", error);
+  for (let tier = 0; tier < LEAD_DETAIL_SELECT_TIERS.length; tier += 1) {
+    const { data, error } = await supabase
+      .from("leads")
+      .select(LEAD_DETAIL_SELECT_TIERS[tier] as "*")
+      .eq("id", id)
+      .eq("corretor_id", corretor.id)
+      .maybeSingle();
+
+    if (!error && data) {
+      const [lead] = await enrichLeadsWithPerfis(supabase, corretor.id, [data as Lead]);
+      const result = lead ?? (data as Lead);
+
+      if (result.interacoes) {
+        result.interacoes.sort(
+          (a, b) => new Date(b.criado_em).getTime() - new Date(a.criado_em).getTime(),
+        );
+      }
+
+      return result;
+    }
+
+    const hasFallback = tier < LEAD_DETAIL_SELECT_TIERS.length - 1;
+    if (hasFallback && error && isSchemaMismatchError(error)) {
+      logPostgrestError(`getLeadById.tier${tier}`, error);
+      continue;
+    }
+
+    if (error) {
+      logPostgrestError("getLeadById", error);
+    }
+
     return null;
   }
 
-  const lead = data as Lead;
-
-  if (lead.interacoes) {
-    lead.interacoes.sort(
-      (a, b) => new Date(b.criado_em).getTime() - new Date(a.criado_em).getTime(),
-    );
-  }
-
-  return lead;
+  return null;
 }
 
 export async function createLead(input: CreateLeadInput): Promise<LeadActionResult> {
@@ -479,6 +595,10 @@ export async function addInteracao(
       atualizado_em: new Date().toISOString(),
     })
     .eq("id", leadId);
+
+  if (input.contarPrimeiraResposta !== false) {
+    await calcularTempoPrimeiraRespostaIfNeeded(leadId, criadoEm, supabase);
+  }
 
   revalidatePath(`/dashboard/atendimentos/${leadId}`);
   revalidatePath(`/dashboard/leads/${leadId}`);

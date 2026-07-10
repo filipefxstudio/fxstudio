@@ -1,5 +1,12 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Variáveis de ambiente
+
+Copie `.env.example` para `.env.local` e preencha os valores:
+
+- `NEXT_PUBLIC_SITE_BASE_URL` — URL base do site em produção (ex.: `https://fxstudio-oino.vercel.app`)
+- `RESEND_API_KEY` — opcional; envia e-mails de leads do site. Sem a chave, leads são criados normalmente e o e-mail é logado no console.
+
 ## Getting Started
 
 First, run the development server:

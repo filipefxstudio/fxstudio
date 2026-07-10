@@ -4,20 +4,19 @@ import { Suspense } from "react";
 
 import { AtendimentoHeader } from "@/components/atendimentos/AtendimentoHeader";
 import { AtendimentoTabs } from "@/components/atendimentos/AtendimentoTabs";
+import { AtendimentoDadosTab } from "@/components/atendimentos/AtendimentoDadosTab";
 import { AuditoriaTab } from "@/components/atendimentos/AuditoriaTab";
-import { DadosTab } from "@/components/atendimentos/DadosTab";
-import { DocumentosTab } from "@/components/atendimentos/DocumentosTab";
-import { ImoveisIndicadosTab } from "@/components/atendimentos/ImoveisIndicadosTab";
 import { ImoveisSelecionadosTab } from "@/components/atendimentos/ImoveisSelecionadosTab";
 import { NegocioTab } from "@/components/atendimentos/NegocioTab";
 import { PropostasTab } from "@/components/atendimentos/PropostasTab";
+import { RadarImoveisTab } from "@/components/atendimentos/RadarImoveisTab";
 import { VisitasTab } from "@/components/atendimentos/VisitasTab";
-import { parseLeadObservacoes } from "@/lib/leads/observacoes";
 import type {
   AuditoriaAtendimento,
   Imovel,
   Lead,
   LeadImovelSelecionado,
+  MotivoDescarte,
   Negocio,
   Proposta,
   Visita,
@@ -26,78 +25,76 @@ import type {
 interface AtendimentoClientProps {
   lead: Lead;
   perfis: { id: string; nome: string }[];
-  imoveisMap: Record<string, Imovel>;
+  imoveisRadar: Imovel[];
   visitas: Visita[];
   propostas: Proposta[];
   negocios: Negocio[];
   imoveisSelecionados: LeadImovelSelecionado[];
   auditoria: AuditoriaAtendimento[];
+  motivos: MotivoDescarte[];
+  podeTransferir: boolean;
 }
 
 export function AtendimentoClient({
   lead,
   perfis,
-  imoveisMap,
+  imoveisRadar,
   visitas,
   propostas,
   negocios,
   imoveisSelecionados,
   auditoria,
+  motivos,
+  podeTransferir,
 }: AtendimentoClientProps) {
-  const { meta } = parseLeadObservacoes(lead.observacoes);
-  const indicadosIds = new Set<string>();
-  if (lead.imovel_id) indicadosIds.add(lead.imovel_id);
-  for (const id of meta.imoveis_indicados ?? []) indicadosIds.add(id);
-
-  const imoveisIndicados = Array.from(indicadosIds)
-    .map((id) => imoveisMap[id])
+  const imoveisParaAcao = imoveisSelecionados
+    .map((s) => s.imovel)
     .filter((i): i is Imovel => Boolean(i));
-
-  const imoveisParaAcao =
-    imoveisIndicados.length > 0
-      ? imoveisIndicados
-      : Object.values(imoveisMap);
 
   return (
     <div className="space-y-4">
-      <AtendimentoHeader lead={lead} />
+      <AtendimentoHeader
+        lead={lead}
+        perfis={perfis}
+        motivos={motivos}
+        podeTransferir={podeTransferir}
+      />
 
       <Suspense fallback={<div className="h-40 animate-pulse rounded-xl bg-muted" />}>
         <AtendimentoTabs
           panels={{
-            dados: (
-              <DadosTab lead={lead} perfis={perfis} imoveisIndicados={imoveisIndicados} />
-            ),
-            indicados: (
-              <ImoveisIndicadosTab lead={lead} imoveis={imoveisIndicados} />
+            dados: <AtendimentoDadosTab lead={lead} perfis={perfis} />,
+            radar: (
+              <RadarImoveisTab
+                leadId={lead.id}
+                imoveis={imoveisRadar}
+                selecionados={imoveisSelecionados}
+                imovelInteresseId={lead.imovel_id}
+              />
             ),
             selecionados: (
               <ImoveisSelecionadosTab
                 leadId={lead.id}
-                imoveisIndicados={imoveisIndicados}
                 selecionados={imoveisSelecionados}
+                imovelInteresseId={lead.imovel_id}
               />
             ),
             visitas: (
-              <VisitasTab leadId={lead.id} visitas={visitas} imoveis={imoveisParaAcao} />
+              <VisitasTab
+                leadId={lead.id}
+                visitas={visitas}
+                imoveis={imoveisParaAcao.length > 0 ? imoveisParaAcao : imoveisRadar}
+              />
             ),
             propostas: (
               <PropostasTab
                 leadId={lead.id}
                 propostas={propostas}
-                imoveis={imoveisParaAcao}
+                imoveis={imoveisParaAcao.length > 0 ? imoveisParaAcao : imoveisRadar}
               />
             ),
-            negocio: (
-              <NegocioTab
-                leadId={lead.id}
-                negocios={negocios}
-                propostas={propostas}
-                imoveis={imoveisParaAcao}
-              />
-            ),
+            negocio: <NegocioTab negocios={negocios} />,
             auditoria: <AuditoriaTab registros={auditoria} />,
-            documentos: <DocumentosTab />,
           }}
         />
       </Suspense>

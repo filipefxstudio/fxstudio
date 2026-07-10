@@ -10,12 +10,20 @@ export const metadata: Metadata = {
   description: "Gerencie os imóveis do seu portfólio",
 };
 
-export default async function ImoveisPage() {
+export default async function ImoveisPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const corretor = await getCorretorForUser();
 
   if (!corretor) {
     redirect("/login");
   }
+
+  const params = await searchParams;
+  const initialBusca = typeof params.busca === "string" ? params.busca : "";
+  const initialBairro = typeof params.bairro === "string" ? params.bairro : "";
 
   const [imoveis, statusList] = await Promise.all([
     getImoveis(),
@@ -28,6 +36,8 @@ export default async function ImoveisPage() {
         imoveis={imoveis}
         corretorSlug={corretor.slug}
         statusList={statusList}
+        initialBusca={initialBusca}
+        initialBairro={initialBairro}
       />
     </div>
   );

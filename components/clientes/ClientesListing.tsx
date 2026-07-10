@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { contemNormalizado } from "@/lib/utils/normalizar";
 import type { Cliente, Perfil } from "@/types";
 
 type ViewMode = "grid" | "list";
@@ -28,15 +29,14 @@ function matchesSearch(cliente: Cliente, query: string): boolean {
     return true;
   }
 
-  const normalized = query.trim().toLowerCase();
   const digits = query.replace(/\D/g, "");
   const telefoneDigits = cliente.telefone.replace(/\D/g, "");
 
   return (
-    cliente.nome.toLowerCase().includes(normalized) ||
-    cliente.telefone.toLowerCase().includes(normalized) ||
+    contemNormalizado(cliente.nome, query) ||
+    contemNormalizado(cliente.telefone, query) ||
     (digits.length > 0 && telefoneDigits.includes(digits)) ||
-    (cliente.email?.toLowerCase().includes(normalized) ?? false)
+    contemNormalizado(cliente.email, query)
   );
 }
 

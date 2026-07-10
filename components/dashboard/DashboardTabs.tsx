@@ -14,7 +14,7 @@ export function DashboardTabs({ activeTab, onTabChange }: DashboardTabsProps) {
       value={activeTab}
       onValueChange={(value) => onTabChange(value as DashboardTab)}
     >
-      <TabsList className="h-auto w-full flex-wrap justify-start gap-1 overflow-visible sm:w-auto">
+      <TabsList className="h-auto w-full flex-wrap justify-start gap-1 overflow-visible sm:w-auto sm:overflow-visible">
         <TabsTrigger value="venda" className="flex-1 sm:flex-none">
           Venda
         </TabsTrigger>
