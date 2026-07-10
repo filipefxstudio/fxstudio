@@ -1,5 +1,17 @@
 import { z } from "zod";
 
+function coordNumber(message = "Coordenada inválida.") {
+  return z.preprocess(
+    (value) => {
+      if (value === "" || value === undefined || value === null) {
+        return null;
+      }
+      return Number(value);
+    },
+    z.number({ error: message }).nullable(),
+  );
+}
+
 function optionalNumber(message = "Informe um número válido.") {
   return z.preprocess(
     (value) => {
@@ -67,8 +79,8 @@ const baseImovelSchema = z.object({
     .trim()
     .length(2, "Informe a UF com 2 letras.")
     .transform((value) => value.toUpperCase()),
-  latitude: optionalNumber("Latitude inválida."),
-  longitude: optionalNumber("Longitude inválida."),
+  latitude: coordNumber("Latitude inválida."),
+  longitude: coordNumber("Longitude inválida."),
   portal_endereco_diferente: z.boolean(),
   portal_logradouro: z.string().trim().optional(),
   portal_numero: z.string().trim().optional(),

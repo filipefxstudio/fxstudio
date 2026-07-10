@@ -1,9 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
-import { Loader2, Search, X } from "lucide-react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { Loader2 } from "lucide-react";
 
+import {
+  ImovelInteresseAutocomplete,
+  type ImovelSearchResult,
+} from "@/components/atendimentos/ImovelInteresseAutocomplete";
 import { LeadHistorico } from "@/components/leads/LeadHistorico";
 import { Button } from "@/components/ui/button";
 import { CurrencyInput } from "@/components/ui/currency-input";
@@ -22,7 +27,6 @@ import {
   calcularFaixaValorImovel,
   updateAtendimentoDados,
 } from "@/lib/actions/atendimentos";
-import { searchImoveisForLead } from "@/lib/actions/leads";
 import { SITUACAO_LEAD_LABELS } from "@/lib/constants/atendimentos";
 import {
   ETAPA_LEAD_LABELS,
@@ -32,41 +36,42 @@ import {
 } from "@/lib/constants/leads";
 import { formatOrigemDisplay, formatTempoPrimeiraResposta } from "@/lib/leads/format";
 import { parseLeadObservacoes } from "@/lib/leads/observacoes";
-import { formatCurrency } from "@/lib/site/format";
 import { toast } from "@/hooks/use-toast";
-import type { EtapaLead, Lead, SituacaoLead, TemperaturaLead } from "@/types";
+import type { EtapaLead, Lead, SituacaoLead, TemperaturaLead, TipoImovelCustom } from "@/types";
 
 interface AtendimentoDadosTabProps {
   lead: Lead;
   perfis: { id: string; nome: string }[];
+  tiposImovel: TipoImovelCustom[];
 }
 
-type ImovelResult = Awaited<ReturnType<typeof searchImoveisForLead>>[number];
-
-export function AtendimentoDadosTab({ lead, perfis }: AtendimentoDadosTabProps) {
+export function AtendimentoDadosTab({ lead, perfis, tiposImovel }: AtendimentoDadosTabProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   const responsavelNome =
     lead.perfil?.nome ?? perfis.find((p) => p.id === lead.perfil_id)?.nome ?? null;
 
-  const [temperatura, setTemperatura] = useState<TemperaturaLead>(lead.temperatura);
+  const [temperatura, setTemperatura] = useState<TemperaturaLead>(
+    lead.temperatura ?? "indefinido",
+  );
   const [etapa, setEtapa] = useState<EtapaLead>(lead.etapa);
   const [situacao, setSituacao] = useState<SituacaoLead>(lead.situacao ?? "em_atendimento");
 
-  const [buscaImovel, setBuscaImovel] = useState("");
-  const [resultados, setResultados] = useState<ImovelResult[]>([]);
-  const [imovelInteresse, setImovelInteresse] = useState<ImovelResult | null>(
+  const [imovelInteresse, setImovelInteresse] = useState<ImovelSearchResult | null>(
     lead.imovel
       ? {
           id: lead.imovel.id,
           titulo: lead.imovel.titulo,
           codigo: lead.imovel.codigo,
           bairro: lead.imovel.bairro,
+          logradouro: lead.imovel.logradouro,
+          tipo: lead.imovel.tipo,
           finalidade: lead.imovel.finalidade,
           status: lead.imovel.status,
           valor_venda: lead.imovel.valor_venda,
           valor_locacao: lead.imovel.valor_locacao,
+          fotos: lead.imovel.fotos ?? [],
         }
       : null,
   );
@@ -93,6 +98,28 @@ export function AtendimentoDadosTab({ lead, perfis }: AtendimentoDadosTabProps) 
   const [interessePermuta, setInteressePermuta] = useState(lead.interesse_permuta ?? false);
   const [infoPermuta, setInfoPermuta] = useState(lead.info_permuta ?? "");
   const [obsFinanceiras, setObsFinanceiras] = useState(lead.obs_financeiras ?? "");
+
+  const tiposAtivos = useMemo(
+    () => tiposImovel.filter((t) => t.ativo),
+    [tiposImovel],
+  );
+
+  useEffect(() => {
+    if (!imovelInteresse) return;
+    startTransition(async () => {
+      const faixa = await calcularFaixaValorImovel(imovelInteresse.id);
+      if (faixa) {
+        setValorMin(faixa.min);
+        setValorMax(faixa.max);
+      }
+      if (imovelInteresse.finalidade === "venda") setFinalidade("compra");
+      if (imovelInteresse.finalidade === "locacao") setFinalidade("locacao");
+      if (imovelInteresse.tipo) setTipoImovel(imovelInteresse.tipo);
+      if (imovelInteresse.bairro && !bairros.includes(imovelInteresse.bairro)) {
+        setBairros((prev) => [...prev, imovelInteresse.bairro!]);
+      }
+    });
+  }, [imovelInteresse]);
 
   function save(partial?: Parameters<typeof updateAtendimentoDados>[1]) {
     startTransition(async () => {
@@ -127,30 +154,6 @@ export function AtendimentoDadosTab({ lead, perfis }: AtendimentoDadosTabProps) 
       }
       toast({ title: result.message });
       router.refresh();
-    });
-  }
-
-  function buscarImoveis() {
-    startTransition(async () => {
-      const data = await searchImoveisForLead(buscaImovel);
-      setResultados(data);
-    });
-  }
-
-  function selecionarImovelInteresse(imovel: ImovelResult) {
-    setImovelInteresse(imovel);
-    setResultados([]);
-    startTransition(async () => {
-      const faixa = await calcularFaixaValorImovel(imovel.id);
-      if (faixa) {
-        setValorMin(faixa.min);
-        setValorMax(faixa.max);
-      }
-      if (imovel.finalidade === "venda") setFinalidade("compra");
-      if (imovel.finalidade === "locacao") setFinalidade("locacao");
-      if (imovel.bairro && !bairros.includes(imovel.bairro)) {
-        setBairros((prev) => [...prev, imovel.bairro!]);
-      }
     });
   }
 
@@ -220,44 +223,12 @@ export function AtendimentoDadosTab({ lead, perfis }: AtendimentoDadosTabProps) 
       </section>
 
       <section className="space-y-4 rounded-xl border border-border p-4">
-        <h3 className="font-semibold text-primary">O que busca</h3>
-        <div className="flex gap-2">
-          <Input
-            placeholder="Buscar imóvel de interesse"
-            value={buscaImovel}
-            onChange={(e) => setBuscaImovel(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), buscarImoveis())}
-          />
-          <Button type="button" variant="outline" onClick={buscarImoveis} disabled={isPending}>
-            <Search className="size-4" />
-          </Button>
-        </div>
-        {imovelInteresse ? (
-          <div className="flex items-center justify-between rounded-lg border p-3">
-            <div>
-              <p className="font-medium">{imovelInteresse.titulo ?? imovelInteresse.codigo}</p>
-              <p className="text-xs text-muted-foreground">{imovelInteresse.bairro}</p>
-            </div>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setImovelInteresse(null)}>
-              <X className="size-4" />
-            </Button>
-          </div>
-        ) : null}
-        {resultados.length > 0 && !imovelInteresse ? (
-          <div className="grid gap-2 sm:grid-cols-2">
-            {resultados.map((imovel) => (
-              <button
-                key={imovel.id}
-                type="button"
-                className="rounded-lg border p-3 text-left hover:bg-muted"
-                onClick={() => selecionarImovelInteresse(imovel)}
-              >
-                <p className="text-sm font-medium">{imovel.titulo ?? imovel.codigo}</p>
-                <p className="text-xs text-muted-foreground">{imovel.bairro}</p>
-              </button>
-            ))}
-          </div>
-        ) : null}
+        <h3 className="font-semibold text-primary">Interesse</h3>
+        <ImovelInteresseAutocomplete
+          value={imovelInteresse}
+          onChange={setImovelInteresse}
+          disabled={isPending}
+        />
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label>Finalidade</Label>
@@ -271,8 +242,17 @@ export function AtendimentoDadosTab({ lead, perfis }: AtendimentoDadosTabProps) 
             </Select>
           </div>
           <div className="space-y-2">
-            <Label>Tipo</Label>
-            <Input value={tipoImovel} onChange={(e) => setTipoImovel(e.target.value)} />
+            <Label>Tipo de imóvel</Label>
+            <Select value={tipoImovel} onValueChange={setTipoImovel}>
+              <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+              <SelectContent>
+                {tiposAtivos.map((t) => (
+                  <SelectItem key={t.id} value={t.nome.toLowerCase()}>
+                    {t.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-2 sm:col-span-2">
             <Label>Bairros</Label>
@@ -282,7 +262,7 @@ export function AtendimentoDadosTab({ lead, perfis }: AtendimentoDadosTabProps) 
                 onChange={(e) => setBairroInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addBairro())}
               />
-              <Button type="button" variant="outline" onClick={addBairro}>Add</Button>
+              <Button type="button" variant="outline" onClick={addBairro}>Adicionar</Button>
             </div>
             <div className="flex flex-wrap gap-1">
               {bairros.map((b) => (

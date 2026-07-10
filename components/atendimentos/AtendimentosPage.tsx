@@ -50,6 +50,7 @@ interface AtendimentosPageProps {
   perfis: { id: string; nome: string }[];
   motivos: MotivoDescarte[];
   podeTransferir: boolean;
+  podeExcluir: boolean;
   initialFilters?: Partial<LeadsFilterState>;
   initialBusca?: string;
 }
@@ -138,6 +139,7 @@ export function AtendimentosPage({
   perfis,
   motivos,
   podeTransferir,
+  podeExcluir,
   initialFilters,
   initialBusca = "",
 }: AtendimentosPageProps) {
@@ -155,6 +157,7 @@ export function AtendimentosPage({
   const [modalLead, setModalLead] = useState<Lead | null>(null);
   const [descartarOpen, setDescartarOpen] = useState(false);
   const [transferirOpen, setTransferirOpen] = useState(false);
+  const [excluirOpen, setExcluirOpen] = useState(false);
 
   const showResponsavel = perfis.length > 1;
 
@@ -237,6 +240,11 @@ export function AtendimentosPage({
     setTransferirOpen(true);
   }
 
+  function openExcluir(lead: Lead) {
+    setModalLead(lead);
+    setExcluirOpen(true);
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -309,10 +317,12 @@ export function AtendimentosPage({
               lead={lead}
               disabled={isPending}
               podeTransferir={podeTransferir}
+              podeExcluir={podeExcluir}
               onContatoFeito={() => runCardAction(lead.id, () => marcarContatoFeito(lead.id))}
               onQualificar={() => runCardAction(lead.id, () => qualificarLead(lead.id))}
               onDescartar={() => openDescartar(lead)}
               onTransferir={() => openTransferir(lead)}
+              onExcluir={() => openExcluir(lead)}
             />
           )}
         </LeadCardGrid>
@@ -330,10 +340,12 @@ export function AtendimentosPage({
               lead={lead}
               disabled={isPending}
               podeTransferir={podeTransferir}
+              podeExcluir={podeExcluir}
               onContatoFeito={() => runCardAction(lead.id, () => marcarContatoFeito(lead.id))}
               onQualificar={() => runCardAction(lead.id, () => qualificarLead(lead.id))}
               onDescartar={() => openDescartar(lead)}
               onTransferir={() => openTransferir(lead)}
+              onExcluir={() => openExcluir(lead)}
             />
           )}
         </LeadCardList>
@@ -346,10 +358,13 @@ export function AtendimentosPage({
           perfis={perfis}
           motivos={motivos}
           podeTransferir={podeTransferir}
+          podeExcluir={podeExcluir}
           descartarOpen={descartarOpen}
           transferirOpen={transferirOpen}
+          excluirOpen={excluirOpen}
           onDescartarOpenChange={setDescartarOpen}
           onTransferirOpenChange={setTransferirOpen}
+          onExcluirOpenChange={setExcluirOpen}
         />
       ) : null}
     </div>
@@ -360,18 +375,22 @@ function AtendimentoCardActions({
   lead,
   disabled,
   podeTransferir,
+  podeExcluir,
   onContatoFeito,
   onQualificar,
   onDescartar,
   onTransferir,
+  onExcluir,
 }: {
   lead: Lead;
   disabled: boolean;
   podeTransferir: boolean;
+  podeExcluir: boolean;
   onContatoFeito: () => void;
   onQualificar: () => void;
   onDescartar: () => void;
   onTransferir: () => void;
+  onExcluir: () => void;
 }) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -490,6 +509,21 @@ function AtendimentoCardActions({
               <Trash2 className="size-3.5" />
               Descartar
             </button>
+            {podeExcluir ? (
+              <button
+                type="button"
+                className="flex w-full items-center gap-1 px-3 py-2 text-left text-xs text-[#E63946] hover:bg-muted"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setMenuOpen(false);
+                  onExcluir();
+                }}
+              >
+                <Trash2 className="size-3.5" />
+                Excluir atendimento
+              </button>
+            ) : null}
             <button
               type="button"
               className="block w-full px-3 py-2 text-left text-xs hover:bg-muted"

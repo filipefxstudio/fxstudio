@@ -10,6 +10,7 @@ import {
   getMotivosDescarte,
   podeTransferirAtendimento,
 } from "@/lib/actions/atendimentos";
+import { getTiposImovelCustom } from "@/lib/actions/configuracoes";
 import { getPerfisForLeads } from "@/lib/actions/leads";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 
@@ -38,11 +39,12 @@ export default async function AtendimentoDetailPage({ params }: PageProps) {
 
   const { lead, visitas, propostas, negocios, imoveisSelecionados, auditoria } = data;
 
-  const [perfis, imoveisRadar, motivos, podeTransferir] = await Promise.all([
+  const [perfis, imoveisRadar, motivos, podeTransferir, tiposImovel] = await Promise.all([
     getPerfisForLeads(),
     getImoveisRadar(id),
     getMotivosDescarte(),
     podeTransferirAtendimento(),
+    getTiposImovelCustom(),
   ]);
 
   return (
@@ -66,6 +68,7 @@ export default async function AtendimentoDetailPage({ params }: PageProps) {
         auditoria={auditoria}
         motivos={motivos}
         podeTransferir={podeTransferir}
+        tiposImovel={tiposImovel}
       />
     </div>
   );

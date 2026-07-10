@@ -379,9 +379,9 @@ function buildTemperatura(
     { label: "Frio", value: count("frio"), color: "#2E86AB", href: `${base}&temperatura=frio` },
     {
       label: "Indefinido",
-      value: ativos.filter((l) => !l.temperatura).length,
+      value: count("indefinido"),
       color: "#9CA3AF",
-      href: base,
+      href: `${base}&temperatura=indefinido`,
     },
   ];
 }

@@ -22,6 +22,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import {
   descartarAtendimento,
+  excluirAtendimento,
   transferirAtendimento,
 } from "@/lib/actions/atendimentos";
 import { toast } from "@/hooks/use-toast";
@@ -33,10 +34,13 @@ interface AtendimentoModalsProps {
   perfis: { id: string; nome: string }[];
   motivos: MotivoDescarte[];
   podeTransferir: boolean;
+  podeExcluir?: boolean;
   descartarOpen: boolean;
   transferirOpen: boolean;
+  excluirOpen?: boolean;
   onDescartarOpenChange: (open: boolean) => void;
   onTransferirOpenChange: (open: boolean) => void;
+  onExcluirOpenChange?: (open: boolean) => void;
 }
 
 export function AtendimentoModals({
@@ -45,16 +49,20 @@ export function AtendimentoModals({
   perfis,
   motivos,
   podeTransferir,
+  podeExcluir,
   descartarOpen,
   transferirOpen,
+  excluirOpen = false,
   onDescartarOpenChange,
   onTransferirOpenChange,
+  onExcluirOpenChange,
 }: AtendimentoModalsProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [motivoId, setMotivoId] = useState("");
   const [obsDescarte, setObsDescarte] = useState("");
   const [perfilDestino, setPerfilDestino] = useState("");
+  const [motivoExclusao, setMotivoExclusao] = useState("");
 
   function handleDescartar() {
     if (!motivoId) {
@@ -86,6 +94,24 @@ export function AtendimentoModals({
       }
       toast({ title: result.message });
       onTransferirOpenChange(false);
+      router.refresh();
+    });
+  }
+
+  function handleExcluir() {
+    if (!motivoExclusao.trim()) {
+      toast({ variant: "destructive", title: "Informe o motivo da exclusão." });
+      return;
+    }
+    startTransition(async () => {
+      const result = await excluirAtendimento(leadId, motivoExclusao);
+      if (result.error) {
+        toast({ variant: "destructive", title: "Erro", description: result.error });
+        return;
+      }
+      toast({ title: result.message });
+      onExcluirOpenChange?.(false);
+      router.push("/dashboard/atendimentos");
       router.refresh();
     });
   }
@@ -160,6 +186,40 @@ export function AtendimentoModals({
               </div>
               <Button className="w-full" disabled={isPending} onClick={handleTransferir}>
                 {isPending ? <Loader2 className="size-4 animate-spin" /> : "Transferir"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      ) : null}
+
+      {podeExcluir ? (
+        <Dialog open={excluirOpen} onOpenChange={(open) => onExcluirOpenChange?.(open)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Excluir atendimento</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              {leadNome
+                ? `Excluir permanentemente o atendimento de ${leadNome}?`
+                : "Esta ação não pode ser desfeita."}
+            </p>
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label>Motivo *</Label>
+                <Textarea
+                  value={motivoExclusao}
+                  onChange={(e) => setMotivoExclusao(e.target.value)}
+                  rows={3}
+                  required
+                />
+              </div>
+              <Button
+                variant="destructive"
+                className="w-full"
+                disabled={isPending}
+                onClick={handleExcluir}
+              >
+                {isPending ? <Loader2 className="size-4 animate-spin" /> : "Confirmar exclusão"}
               </Button>
             </div>
           </DialogContent>

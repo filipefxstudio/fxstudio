@@ -1186,7 +1186,7 @@ export function ImovelForm({
       ) : null}
 
       <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-        {isEdit && imovel.status_aprovacao === "cadastro_incompleto" ? (
+        {isEdit && imovel.status_aprovacao === "em_cadastro" ? (
           <Button
             type="button"
             variant="secondary"

@@ -9,6 +9,7 @@ import {
   MOTIVOS_DESATIVACAO,
   STORAGE_BUCKET_MARCA_DAGUA,
 } from "@/lib/constants/imoveis";
+import { enviarConviteEquipe } from "@/lib/email/invite";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -294,7 +295,6 @@ export async function convidarPerfil(data: {
     return { error: "Informe nome e e-mail." };
   }
 
-  // MVP: stub invite — perfil created without auth user link
   const supabase = await createClient();
   const { error } = await supabase.from("perfis").insert({
     corretor_id: corretor.id,
@@ -311,7 +311,40 @@ export async function convidarPerfil(data: {
     return { error: "Não foi possível registrar o convite." };
   }
 
+  console.info("[convidarPerfil] sending invite email", {
+    to: email,
+    nome,
+    papel: data.papel,
+    corretorNome: corretor.nome,
+  });
+
+  const emailResult = await enviarConviteEquipe({
+    email,
+    nome,
+    papel: data.papel,
+    corretorNome: corretor.nome,
+  });
+
   revalidatePath("/dashboard/configuracoes");
+
+  if (!emailResult.success) {
+    console.error("[convidarPerfil] invite email failed", {
+      to: email,
+      error: emailResult.error,
+      resendBody: emailResult.resendBody ?? null,
+    });
+
+    const detail = emailResult.error?.trim();
+    const message = detail
+      ? `Perfil registrado, mas o e-mail de convite não pôde ser enviado: ${detail}`
+      : "Perfil registrado, mas o e-mail de convite não pôde ser enviado.";
+
+    return {
+      success: true,
+      message,
+    };
+  }
+
   return {
     success: true,
     message: "Convite enviado! O usuário receberá um e-mail com link de acesso.",
@@ -329,6 +362,21 @@ export async function togglePerfilAtivo(
   }
 
   const supabase = await createClient();
+  const { data: perfil } = await supabase
+    .from("perfis")
+    .select("id, user_id")
+    .eq("id", id)
+    .eq("corretor_id", corretor.id)
+    .maybeSingle();
+
+  if (!perfil) {
+    return { error: "Perfil não encontrado." };
+  }
+
+  if (perfil.user_id === corretor.user_id && !ativo) {
+    return { error: "O administrador principal não pode ser desativado." };
+  }
+
   const { error } = await supabase
     .from("perfis")
     .update({ ativo })
@@ -341,6 +389,60 @@ export async function togglePerfilAtivo(
 
   revalidatePath("/dashboard/configuracoes");
   return { success: true };
+}
+
+export async function editarPerfil(
+  id: string,
+  data: { nome: string; email: string; papel: PapelUsuario },
+): Promise<ConfigActionResult> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) return { error: "Sessão expirada." };
+
+  const nome = data.nome.trim();
+  const email = data.email.trim();
+  if (!nome || !email) return { error: "Informe nome e e-mail." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("perfis")
+    .update({ nome, email, papel: data.papel })
+    .eq("id", id)
+    .eq("corretor_id", corretor.id);
+
+  if (error) return { error: "Não foi possível atualizar o perfil." };
+
+  revalidatePath("/dashboard/configuracoes");
+  return { success: true, message: "Perfil atualizado." };
+}
+
+export async function excluirPerfil(id: string): Promise<ConfigActionResult> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) return { error: "Sessão expirada." };
+
+  const supabase = await createClient();
+  const { data: perfil } = await supabase
+    .from("perfis")
+    .select("id, user_id")
+    .eq("id", id)
+    .eq("corretor_id", corretor.id)
+    .maybeSingle();
+
+  if (!perfil) return { error: "Perfil não encontrado." };
+
+  if (perfil.user_id === corretor.user_id) {
+    return { error: "O administrador principal não pode ser excluído." };
+  }
+
+  const { error } = await supabase
+    .from("perfis")
+    .delete()
+    .eq("id", id)
+    .eq("corretor_id", corretor.id);
+
+  if (error) return { error: "Não foi possível excluir o perfil." };
+
+  revalidatePath("/dashboard/configuracoes");
+  return { success: true, message: "Perfil excluído." };
 }
 
 export async function getStatusImovelConfig(): Promise<StatusImovel[]> {

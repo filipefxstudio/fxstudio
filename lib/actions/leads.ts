@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 
+import { contemNormalizado } from "@/lib/utils/normalizar";
+
 import { ETAPAS_LEAD, isEtapaLead } from "@/lib/constants/leads";
 import { podeAvancarEtapa } from "@/lib/leads/etapa-order";
 import { calcularTempoPrimeiraRespostaIfNeeded } from "@/lib/leads/primeira-resposta";
@@ -407,7 +409,7 @@ export async function createLead(input: CreateLeadInput): Promise<LeadActionResu
       prazo_decisao: input.prazo_decisao?.trim() || null,
       origem: mapMidiaToOrigem(input.midia_nome),
       etapa: "novo",
-      temperatura: "morno",
+      temperatura: "indefinido",
       atendido_por: "corretor",
       observacoes,
     })
@@ -751,19 +753,30 @@ export async function searchImoveisForLead(query: string) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("imoveis")
-    .select("id, titulo, codigo, bairro, finalidade, status, valor_venda, valor_locacao")
-    .eq("corretor_id", corretor.id)
-    .or(
-      `titulo.ilike.%${trimmed}%,codigo.ilike.%${trimmed}%,bairro.ilike.%${trimmed}%`,
+    .select(
+      "id, titulo, codigo, bairro, logradouro, finalidade, status, tipo, valor_venda, valor_locacao, fotos:imovel_fotos(id, url, ordem)",
     )
-    .limit(10);
+    .eq("corretor_id", corretor.id)
+    .in("status", ["disponivel", "reservado"])
+    .order("atualizado_em", { ascending: false })
+    .limit(80);
 
   if (error) {
     console.error("[searchImoveisForLead] failed", error);
     return [];
   }
 
-  return data ?? [];
+  const filtrados = (data ?? []).filter((imovel) => {
+    const campos = [
+      imovel.titulo,
+      imovel.codigo,
+      imovel.bairro,
+      imovel.logradouro,
+    ];
+    return campos.some((campo) => contemNormalizado(campo, trimmed));
+  });
+
+  return filtrados.slice(0, 10);
 }
 
 export async function getPerfisForLeads() {

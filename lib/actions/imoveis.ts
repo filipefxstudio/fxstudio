@@ -396,7 +396,7 @@ export async function enviarImovelParaAprovacao(id: string): Promise<ImovelActio
     return { error: "Imóvel não encontrado." };
   }
 
-  if (imovel.status_aprovacao !== "cadastro_incompleto") {
+  if (imovel.status_aprovacao !== "em_cadastro") {
     return { error: "Este imóvel não está em cadastro incompleto." };
   }
 
@@ -460,7 +460,7 @@ export async function aprovarImovel(id: string, motivo?: string): Promise<Imovel
 
 export async function atualizarStatusImovelAutomatico(
   imovelId: string,
-  statusNome: "Reservado" | "Vendido" | "Locado",
+  statusNome: "Disponível" | "Reservado" | "Vendido" | "Locado",
   motivo: string,
   detalhes?: Record<string, unknown>,
 ): Promise<void> {
@@ -693,7 +693,7 @@ function buildImovelInsert(
     finalidade: data.finalidade,
     status: statusSlug,
     status_imovel_id: data.status_imovel_id,
-    status_aprovacao: "cadastro_incompleto",
+    status_aprovacao: "em_cadastro",
     data_ativacao: new Date().toISOString(),
     cadastrado_por_perfil_id: cadastradoPorPerfilId,
     cep: sanitizeCep(data.cep),

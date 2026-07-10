@@ -1,26 +1,4 @@
-async function enviarEmailResend(to: string, subject: string, html: string): Promise<boolean> {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    console.info("[site/leads] RESEND_API_KEY não configurada — e-mail não enviado:", {
-      to,
-      subject,
-    });
-    return false;
-  }
-
-  const from = process.env.RESEND_FROM_EMAIL ?? "FX Studio <noreply@fxstudio.com.br>";
-
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ from, to, subject, html }),
-  });
-
-  return response.ok;
-}
+import { sendEmail } from "@/lib/email/resend";
 
 function escapeHtml(value: string): string {
   return value
@@ -52,7 +30,7 @@ export async function notificarCorretorContatoSite(input: {
     <p><em>Origem: site — página Contato</em></p>
   `;
 
-  await enviarEmailResend(input.email, subject, html);
+  await sendEmail("notificarCorretorContatoSite", input.email, subject, html);
 }
 
 export async function notificarCorretorInteresseImovel(input: {
@@ -83,7 +61,7 @@ export async function notificarCorretorInteresseImovel(input: {
     <p><em>Origem: site — página do imóvel</em></p>
   `;
 
-  await enviarEmailResend(input.email, subject, html);
+  await sendEmail("notificarCorretorInteresseImovel", input.email, subject, html);
 }
 
 /** @deprecated Use notificarCorretorContatoSite ou notificarCorretorInteresseImovel */

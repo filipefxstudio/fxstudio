@@ -353,7 +353,7 @@ function criarLeadTeste(corretorId: string): Lead {
     quartos_minimo: 2,
     valor_maximo: 650000,
     etapa: "qualificado",
-    temperatura: "morno",
+    temperatura: "indefinido",
     origem: "whatsapp",
     atendido_por: "agente_ia",
     criado_em: agora,

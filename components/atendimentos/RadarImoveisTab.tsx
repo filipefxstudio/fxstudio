@@ -112,7 +112,7 @@ export function RadarImoveisTab({
                 onClick={() => handleSelecionar(imovel.id)}
               >
                 <Plus className="size-3.5" />
-                {jaSelecionado ? "Selecionado" : "Selecionar"}
+                {jaSelecionado ? "Selecionado ✓" : "Selecionar"}
               </Button>
               <Button size="sm" variant="outline" asChild>
                 <a href={`/dashboard/imoveis/${imovel.id}`} target="_blank" rel="noopener noreferrer">

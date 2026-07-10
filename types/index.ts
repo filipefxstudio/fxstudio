@@ -20,7 +20,7 @@ export type FinalidadeImovel = "venda" | "locacao";
 
 export type StatusImovelSlug = "disponivel" | "reservado" | "vendido" | "locado" | "desativado";
 
-export type StatusAprovacaoImovel = "cadastro_incompleto" | "aguardando_aprovacao" | "aprovado";
+export type StatusAprovacaoImovel = "em_cadastro" | "aguardando_aprovacao" | "aprovado";
 
 export type DestinacaoImovel = "residencial" | "comercial" | "rural";
 
@@ -69,7 +69,7 @@ export type EtapaLead =
   | "fechado"
   | "perdido";
 
-export type TemperaturaLead = "quente" | "morno" | "frio";
+export type TemperaturaLead = "quente" | "morno" | "frio" | "indefinido";
 
 export type SituacaoLead = "em_atendimento" | "descartado" | "negocio_fechado";
 
@@ -550,8 +550,19 @@ export interface LeadImovelSelecionado {
   imovel_id: string;
   corretor_id: string;
   token_compartilhamento: string;
+  interesse_inicial?: boolean;
   criado_em: string;
   imovel?: Imovel | null;
+}
+
+export interface ImovelCaptador {
+  id: string;
+  imovel_id: string;
+  perfil_id?: string | null;
+  nome_externo?: string | null;
+  principal: boolean;
+  criado_em: string;
+  perfil?: Perfil | null;
 }
 
 export interface Agenda {

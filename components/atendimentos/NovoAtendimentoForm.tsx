@@ -2,9 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
-import { Loader2, Search, X } from "lucide-react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { Loader2, X } from "lucide-react";
 
+import {
+  ImovelInteresseAutocomplete,
+  type ImovelSearchResult,
+} from "@/components/atendimentos/ImovelInteresseAutocomplete";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CurrencyInput } from "@/components/ui/currency-input";
@@ -22,24 +26,22 @@ import {
   calcularFaixaValorImovel,
   createAtendimento,
 } from "@/lib/actions/atendimentos";
-import { searchImoveisForLead } from "@/lib/actions/leads";
 import { FINALIDADE_BUSCA_OPTIONS } from "@/lib/constants/leads";
 import { formatTelefoneBr } from "@/lib/imoveis/telefone";
-import { formatCurrency } from "@/lib/site/format";
 import { toast } from "@/hooks/use-toast";
-import type { MidiaOrigem } from "@/types";
+import type { MidiaOrigem, TipoImovelCustom } from "@/types";
 
 interface NovoAtendimentoFormProps {
   midias: MidiaOrigem[];
   perfis: { id: string; nome: string }[];
+  tiposImovel: TipoImovelCustom[];
   faixaValorPercent: number;
 }
-
-type ImovelResult = Awaited<ReturnType<typeof searchImoveisForLead>>[number];
 
 export function NovoAtendimentoForm({
   midias,
   perfis,
+  tiposImovel,
   faixaValorPercent,
 }: NovoAtendimentoFormProps) {
   const router = useRouter();
@@ -53,9 +55,7 @@ export function NovoAtendimentoForm({
   const [perfilId, setPerfilId] = useState("");
   const [observacoes, setObservacoes] = useState("");
 
-  const [buscaImovel, setBuscaImovel] = useState("");
-  const [resultados, setResultados] = useState<ImovelResult[]>([]);
-  const [imovelSelecionado, setImovelSelecionado] = useState<ImovelResult | null>(null);
+  const [imovelSelecionado, setImovelSelecionado] = useState<ImovelSearchResult | null>(null);
 
   const [finalidade, setFinalidade] = useState("");
   const [tipoImovel, setTipoImovel] = useState("");
@@ -67,6 +67,11 @@ export function NovoAtendimentoForm({
   const [vagas, setVagas] = useState("");
   const [valorMin, setValorMin] = useState<number | null>(null);
   const [valorMax, setValorMax] = useState<number | null>(null);
+
+  const tiposAtivos = useMemo(
+    () => tiposImovel.filter((t) => t.ativo),
+    [tiposImovel],
+  );
 
   useEffect(() => {
     if (!imovelSelecionado) return;
@@ -81,18 +86,12 @@ export function NovoAtendimentoForm({
       } else if (imovelSelecionado.finalidade === "locacao") {
         setFinalidade("locacao");
       }
+      if (imovelSelecionado.tipo) setTipoImovel(imovelSelecionado.tipo);
       if (imovelSelecionado.bairro && !bairros.includes(imovelSelecionado.bairro)) {
         setBairros((prev) => [...prev, imovelSelecionado.bairro!]);
       }
     });
   }, [imovelSelecionado]);
-
-  function buscarImoveis() {
-    startTransition(async () => {
-      const data = await searchImoveisForLead(buscaImovel);
-      setResultados(data);
-    });
-  }
 
   function addBairro() {
     const b = bairroInput.trim();
@@ -145,7 +144,7 @@ export function NovoAtendimentoForm({
       <CardHeader>
         <CardTitle>Novo atendimento</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Faixa de valor automática: ±{faixaValorPercent}% do imóvel de interesse.
+          Faixa de valor automática: ±{faixaValorPercent}% do imóvel de interesse. Temperatura padrão: Indefinido.
         </p>
       </CardHeader>
       <CardContent>
@@ -212,52 +211,11 @@ export function NovoAtendimentoForm({
 
           <section className="space-y-4">
             <h3 className="font-semibold text-primary">Imóvel de interesse</h3>
-            <div className="flex gap-2">
-              <Input
-                placeholder="Buscar por título, código ou bairro"
-                value={buscaImovel}
-                onChange={(e) => setBuscaImovel(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), buscarImoveis())}
-              />
-              <Button type="button" variant="outline" onClick={buscarImoveis} disabled={isPending}>
-                <Search className="size-4" />
-              </Button>
-            </div>
-            {imovelSelecionado ? (
-              <div className="flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 p-3">
-                <div>
-                  <p className="font-medium">{imovelSelecionado.titulo ?? imovelSelecionado.codigo}</p>
-                  <p className="text-xs text-muted-foreground">{imovelSelecionado.bairro}</p>
-                </div>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setImovelSelecionado(null)}>
-                  <X className="size-4" />
-                </Button>
-              </div>
-            ) : null}
-            {resultados.length > 0 && !imovelSelecionado ? (
-              <div className="grid gap-2 sm:grid-cols-2">
-                {resultados.map((imovel) => {
-                  const valor = imovel.valor_venda ?? imovel.valor_locacao;
-                  return (
-                    <button
-                      key={imovel.id}
-                      type="button"
-                      className="rounded-lg border border-border p-3 text-left hover:bg-muted"
-                      onClick={() => {
-                        setImovelSelecionado(imovel);
-                        setResultados([]);
-                      }}
-                    >
-                      <p className="text-sm font-medium">{imovel.titulo ?? imovel.codigo}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {imovel.bairro}
-                        {valor ? ` · ${formatCurrency(valor)}` : ""}
-                      </p>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
+            <ImovelInteresseAutocomplete
+              value={imovelSelecionado}
+              onChange={setImovelSelecionado}
+              disabled={isPending}
+            />
           </section>
 
           <section className="space-y-4">
@@ -280,7 +238,18 @@ export function NovoAtendimentoForm({
               </div>
               <div className="space-y-2">
                 <Label>Tipo de imóvel</Label>
-                <Input value={tipoImovel} onChange={(e) => setTipoImovel(e.target.value)} />
+                <Select value={tipoImovel} onValueChange={setTipoImovel}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {tiposAtivos.map((t) => (
+                      <SelectItem key={t.id} value={t.nome.toLowerCase()}>
+                        {t.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2 sm:col-span-2">
                 <Label>Bairros</Label>
@@ -289,7 +258,6 @@ export function NovoAtendimentoForm({
                     value={bairroInput}
                     onChange={(e) => setBairroInput(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addBairro())}
-                    placeholder="Digite e pressione Enter"
                   />
                   <Button type="button" variant="outline" onClick={addBairro}>
                     Adicionar

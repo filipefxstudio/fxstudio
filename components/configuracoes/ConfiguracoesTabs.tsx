@@ -104,7 +104,7 @@ export function ConfiguracoesTabs({
       </TabsContent>
 
       <TabsContent value="equipe">
-        <AbaEquipe perfis={perfisEquipe} />
+        <AbaEquipe perfis={perfisEquipe} adminPrincipalUserId={corretor.user_id} />
       </TabsContent>
 
       <TabsContent value="site">

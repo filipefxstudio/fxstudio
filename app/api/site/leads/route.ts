@@ -97,7 +97,7 @@ export async function POST(request: Request) {
       email: body.email?.trim() || null,
       origem: "site",
       etapa: "novo",
-      temperatura: "quente",
+      temperatura: "indefinido",
       atendido_por: "corretor",
       observacoes,
     })

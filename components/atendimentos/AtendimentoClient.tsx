@@ -19,6 +19,7 @@ import type {
   MotivoDescarte,
   Negocio,
   Proposta,
+  TipoImovelCustom,
   Visita,
 } from "@/types";
 
@@ -33,6 +34,7 @@ interface AtendimentoClientProps {
   auditoria: AuditoriaAtendimento[];
   motivos: MotivoDescarte[];
   podeTransferir: boolean;
+  tiposImovel: TipoImovelCustom[];
 }
 
 export function AtendimentoClient({
@@ -46,6 +48,7 @@ export function AtendimentoClient({
   auditoria,
   motivos,
   podeTransferir,
+  tiposImovel,
 }: AtendimentoClientProps) {
   const imoveisParaAcao = imoveisSelecionados
     .map((s) => s.imovel)
@@ -63,7 +66,7 @@ export function AtendimentoClient({
       <Suspense fallback={<div className="h-40 animate-pulse rounded-xl bg-muted" />}>
         <AtendimentoTabs
           panels={{
-            dados: <AtendimentoDadosTab lead={lead} perfis={perfis} />,
+            dados: <AtendimentoDadosTab lead={lead} perfis={perfis} tiposImovel={tiposImovel} />,
             radar: (
               <RadarImoveisTab
                 leadId={lead.id}

@@ -225,7 +225,7 @@ export function FotoUpload({ fotos, onChange, disabled }: FotoUploadProps) {
 
       {fotos.length > 0 ? (
         <DragDropContext onDragEnd={handleDragEnd}>
-          <Droppable droppableId="fotos" direction="horizontal">
+          <Droppable droppableId="fotos">
             {(provided) => (
               <ul
                 ref={provided.innerRef}

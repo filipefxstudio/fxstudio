@@ -94,7 +94,9 @@ export function ProprietarioSection({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2">
+      <Label>Proprietário *</Label>
+      <div className="space-y-4">
       {selected || clienteId ? (
         <div className="flex items-start justify-between rounded-lg border border-border bg-muted/30 px-4 py-3">
           <div>
@@ -309,6 +311,7 @@ export function ProprietarioSection({
           </Button>
         </div>
       ) : null}
+      </div>
       {error ? (
         <p className="text-sm text-destructive" role="alert">
           {error}

@@ -10,7 +10,7 @@ export function podeAprovarImovel(perfil: Perfil | null | undefined): boolean {
 }
 
 export function podeEnviarParaAprovacao(imovel: Pick<Imovel, "status_aprovacao">): boolean {
-  return imovel.status_aprovacao === "cadastro_incompleto";
+  return imovel.status_aprovacao === "em_cadastro";
 }
 
 export function podeEditarImovelCompleto(
@@ -22,7 +22,7 @@ export function podeEditarImovelCompleto(
   }
 
   return (
-    imovel.status_aprovacao === "cadastro_incompleto" ||
+    imovel.status_aprovacao === "em_cadastro" ||
     imovel.status_aprovacao === "aguardando_aprovacao"
   );
 }
@@ -40,8 +40,8 @@ export function podePublicarImovel(
 
 export function labelStatusAprovacao(status: StatusAprovacaoImovel): string {
   switch (status) {
-    case "cadastro_incompleto":
-      return "Cadastro incompleto";
+    case "em_cadastro":
+      return "Em cadastro";
     case "aguardando_aprovacao":
       return "Aguardando aprovação";
     case "aprovado":

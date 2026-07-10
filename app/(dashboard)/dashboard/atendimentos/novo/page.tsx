@@ -5,6 +5,7 @@ import { ChevronLeft } from "lucide-react";
 
 import { NovoAtendimentoForm } from "@/components/atendimentos/NovoAtendimentoForm";
 import { getAtendimentoConfig } from "@/lib/actions/atendimentos";
+import { getTiposImovelCustom } from "@/lib/actions/configuracoes";
 import { getMidiasOrigem, getPerfisForLeads } from "@/lib/actions/leads";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 
@@ -20,10 +21,11 @@ export default async function NovoAtendimentoPage() {
     redirect("/login");
   }
 
-  const [midias, perfis, config] = await Promise.all([
+  const [midias, perfis, config, tiposImovel] = await Promise.all([
     getMidiasOrigem(),
     getPerfisForLeads(),
     getAtendimentoConfig(),
+    getTiposImovelCustom(),
   ]);
 
   return (
@@ -38,6 +40,7 @@ export default async function NovoAtendimentoPage() {
       <NovoAtendimentoForm
         midias={midias}
         perfis={perfis}
+        tiposImovel={tiposImovel}
         faixaValorPercent={config?.faixa_valor_percent ?? 20}
       />
     </div>

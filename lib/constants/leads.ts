@@ -38,12 +38,14 @@ export const TEMPERATURA_LEAD_COLORS: Record<TemperaturaLead, string> = {
   quente: "#E63946",
   morno: "#F18F01",
   frio: "#2E86AB",
+  indefinido: "#9CA3AF",
 };
 
 export const TEMPERATURA_LEAD_LABELS: Record<TemperaturaLead, string> = {
   quente: "Quente",
   morno: "Morno",
   frio: "Frio",
+  indefinido: "Indefinido",
 };
 
 export const FINALIDADE_BUSCA_OPTIONS = [

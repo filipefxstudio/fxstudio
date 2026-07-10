@@ -1,24 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { sendEmail } from "@/lib/email/resend";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
-
-async function enviarEmailResend(to: string, subject: string, html: string): Promise<boolean> {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return false;
-
-  const from = process.env.RESEND_FROM_EMAIL ?? "FX Studio <noreply@fxstudio.com.br>";
-
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ from, to, subject, html }),
-  });
-
-  return response.ok;
-}
 
 export async function GET(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
@@ -65,12 +48,12 @@ export async function GET(request: Request) {
 ${item.descricao ? `<p>${item.descricao}</p>` : ""}`;
 
     if (email) {
-      const ok = await enviarEmailResend(email, subject, html);
-      if (ok) {
+      const result = await sendEmail("enviarLembreteAgenda", email, subject, html);
+      if (result.success) {
         await supabase.from("agenda").update({ lembrete_enviado: true }).eq("id", item.id);
         enviados += 1;
       } else {
-        console.log("[lembretes stub]", { to: email, subject, itemId: item.id });
+        console.log("[lembretes] email failed", { to: email, subject, itemId: item.id, error: result.error });
         await supabase.from("agenda").update({ lembrete_enviado: true }).eq("id", item.id);
         enviados += 1;
       }

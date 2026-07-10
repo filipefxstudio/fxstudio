@@ -5,6 +5,7 @@ import { AtendimentosPage } from "@/components/atendimentos/AtendimentosPage";
 import type { LeadsFilterState } from "@/components/leads/LeadsFilters";
 import {
   getMotivosDescarte,
+  podeExcluirAtendimento,
   podeTransferirAtendimento,
 } from "@/lib/actions/atendimentos";
 import {
@@ -37,7 +38,7 @@ function parseInitialFilters(
 
   const temperatura =
     typeof params.temperatura === "string" ? params.temperatura : undefined;
-  if (temperatura === "quente" || temperatura === "morno" || temperatura === "frio") {
+  if (temperatura === "quente" || temperatura === "morno" || temperatura === "frio" || temperatura === "indefinido") {
     filters.temperatura = temperatura as TemperaturaLead;
   }
 
@@ -68,12 +69,13 @@ export default async function AtendimentosRoutePage({ searchParams }: PageProps)
 
   const initialBusca = typeof params.busca === "string" ? params.busca : "";
 
-  const [leads, midias, perfis, motivos, podeTransferir] = await Promise.all([
+  const [leads, midias, perfis, motivos, podeTransferir, podeExcluir] = await Promise.all([
     getLeads({ ativos_apenas: false }),
     getMidiasOrigem(),
     getPerfisForLeads(),
     getMotivosDescarte(),
     podeTransferirAtendimento(),
+    podeExcluirAtendimento(),
   ]);
 
   return (
@@ -85,6 +87,7 @@ export default async function AtendimentosRoutePage({ searchParams }: PageProps)
         perfis={perfis}
         motivos={motivos}
         podeTransferir={podeTransferir}
+        podeExcluir={podeExcluir}
         initialFilters={initialFilters}
         initialBusca={initialBusca}
       />

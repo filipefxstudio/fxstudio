@@ -213,6 +213,108 @@ function mapMidiaToOrigem(midiaNome?: string): string {
   return midiaNome.trim();
 }
 
+async function garantirImovelInteresseSelecionado(
+  leadId: string,
+  imovelId: string,
+  corretorId: string,
+  supabase: Awaited<ReturnType<typeof createClient>>,
+): Promise<void> {
+  const { data: existente } = await supabase
+    .from("lead_imoveis_selecionados")
+    .select("id, interesse_inicial")
+    .eq("lead_id", leadId)
+    .eq("imovel_id", imovelId)
+    .eq("corretor_id", corretorId)
+    .maybeSingle();
+
+  if (existente) {
+    if (!existente.interesse_inicial) {
+      await supabase
+        .from("lead_imoveis_selecionados")
+        .update({ interesse_inicial: true })
+        .eq("id", existente.id);
+    }
+    return;
+  }
+
+  await supabase.from("lead_imoveis_selecionados").insert({
+    lead_id: leadId,
+    imovel_id: imovelId,
+    corretor_id: corretorId,
+    interesse_inicial: true,
+    token_compartilhamento: randomBytes(16).toString("hex"),
+  });
+}
+
+function leadTemFiltrosRadar(lead: {
+  finalidade_busca?: string | null;
+  tipo_imovel_busca?: string | null;
+  bairros_interesse?: string[] | null;
+  quartos_minimo?: number | null;
+  suites_minimas?: number | null;
+  banheiros_minimos?: number | null;
+  vagas_minimas?: number | null;
+  valor_minimo?: number | null;
+  valor_maximo?: number | null;
+}): boolean {
+  return Boolean(
+    lead.finalidade_busca ||
+      lead.tipo_imovel_busca ||
+      lead.bairros_interesse?.length ||
+      lead.quartos_minimo ||
+      lead.suites_minimas ||
+      lead.banheiros_minimos ||
+      lead.vagas_minimas ||
+      lead.valor_minimo != null ||
+      lead.valor_maximo != null,
+  );
+}
+
+export async function podeExcluirAtendimento(): Promise<boolean> {
+  const perfil = await getPerfilForUser();
+  return perfil?.papel === "admin";
+}
+
+export async function excluirAtendimento(
+  leadId: string,
+  motivo: string,
+): Promise<AtendimentoActionResult> {
+  const corretor = await getCorretorForUser();
+  const perfil = await getPerfilForUser();
+  if (!corretor) return { error: "Sessão expirada." };
+  if (perfil?.papel !== "admin") return { error: "Sem permissão para excluir." };
+
+  const motivoTrim = motivo.trim();
+  if (!motivoTrim) return { error: "Informe o motivo da exclusão." };
+
+  const supabase = await createClient();
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("id, codigo_atendimento, nome")
+    .eq("id", leadId)
+    .eq("corretor_id", corretor.id)
+    .maybeSingle();
+
+  if (!lead) return { error: "Atendimento não encontrado." };
+
+  await registrarAuditoria(leadId, "atendimento_excluido", {
+    motivo: motivoTrim,
+    codigo: lead.codigo_atendimento,
+    nome: lead.nome,
+  });
+
+  const { error } = await supabase
+    .from("leads")
+    .delete()
+    .eq("id", leadId)
+    .eq("corretor_id", corretor.id);
+
+  if (error) return { error: "Não foi possível excluir o atendimento." };
+
+  revalidateAtendimentoPaths(leadId);
+  return { success: true, message: "Atendimento excluído." };
+}
+
 export async function createAtendimento(
   input: CreateAtendimentoInput,
 ): Promise<AtendimentoActionResult> {
@@ -253,7 +355,7 @@ export async function createAtendimento(
       valor_maximo: input.valor_maximo ?? null,
       origem: mapMidiaToOrigem(input.midia_nome),
       etapa: "novo",
-      temperatura: "morno",
+      temperatura: "indefinido",
       atendido_por: "corretor",
       data_entrada: agora,
       observacoes: input.observacoes?.trim() || null,
@@ -273,6 +375,15 @@ export async function createAtendimento(
     { origem: "sistema" },
   );
   await registrarAuditoria(data.id, "atendimento_criado", { codigo });
+
+  if (input.imovel_id) {
+    await garantirImovelInteresseSelecionado(
+      data.id,
+      input.imovel_id,
+      corretor.id,
+      supabase,
+    );
+  }
 
   revalidateAtendimentoPaths(data.id);
   return { success: true, id: data.id, message: `Atendimento ${codigo} criado.` };
@@ -331,6 +442,31 @@ export async function getAtendimentoCompleto(leadId: string) {
     lead.interacoes.sort(
       (a, b) => new Date(b.criado_em).getTime() - new Date(a.criado_em).getTime(),
     );
+  }
+
+  if (lead.imovel_id) {
+    await garantirImovelInteresseSelecionado(
+      leadId,
+      lead.imovel_id,
+      corretor.id,
+      supabase,
+    );
+    const { data: refreshed } = await supabase
+      .from("lead_imoveis_selecionados")
+      .select("*, imovel:imoveis(*, fotos:imovel_fotos(*))")
+      .eq("lead_id", leadId)
+      .eq("corretor_id", corretor.id)
+      .order("criado_em", { ascending: false });
+    if (refreshed) {
+      return {
+        lead,
+        visitas: (visitasRes.data ?? []) as Visita[],
+        propostas: (propostasRes.data ?? []) as Proposta[],
+        negocios: (negociosRes.data ?? []) as Negocio[],
+        imoveisSelecionados: refreshed as LeadImovelSelecionado[],
+        auditoria: (auditoriaRes.data ?? []) as AuditoriaAtendimento[],
+      };
+    }
   }
 
   return {
@@ -431,6 +567,15 @@ export async function updateAtendimentoDados(
     .eq("corretor_id", corretor.id);
 
   if (error) return { error: "Não foi possível salvar." };
+
+  if (input.imovel_id !== undefined && input.imovel_id) {
+    await garantirImovelInteresseSelecionado(
+      leadId,
+      input.imovel_id,
+      corretor.id,
+      supabase,
+    );
+  }
 
   await registrarAuditoria(leadId, "dados_atualizados", { campos: Object.keys(input) });
   revalidateAtendimentoPaths(leadId);
@@ -550,44 +695,48 @@ export async function getImoveisRadar(leadId: string): Promise<Imovel[]> {
     .from("imoveis")
     .select("*, fotos:imovel_fotos(*), captador:perfis(id, nome)")
     .eq("corretor_id", corretor.id)
-    .in("status", ["disponivel", "reservado"])
+    .eq("status", "disponivel")
     .eq("status_aprovacao", "aprovado");
 
-  if (lead.finalidade_busca === "compra") {
-    query = query.eq("finalidade", "venda");
-  } else if (lead.finalidade_busca === "locacao") {
-    query = query.eq("finalidade", "locacao");
-  }
+  const aplicarFiltros = leadTemFiltrosRadar(lead);
 
-  if (lead.tipo_imovel_busca) {
-    query = query.eq("tipo", lead.tipo_imovel_busca);
-  }
+  if (aplicarFiltros) {
+    if (lead.finalidade_busca === "compra") {
+      query = query.eq("finalidade", "venda");
+    } else if (lead.finalidade_busca === "locacao") {
+      query = query.eq("finalidade", "locacao");
+    }
 
-  if (lead.quartos_minimo) {
-    query = query.gte("quartos", lead.quartos_minimo);
-  }
-  if (lead.suites_minimas) {
-    query = query.gte("suites", lead.suites_minimas);
-  }
-  if (lead.banheiros_minimos) {
-    query = query.gte("banheiros", lead.banheiros_minimos);
-  }
-  if (lead.vagas_minimas) {
-    query = query.gte("vagas", lead.vagas_minimas);
+    if (lead.tipo_imovel_busca) {
+      query = query.eq("tipo", lead.tipo_imovel_busca);
+    }
+
+    if (lead.quartos_minimo) {
+      query = query.gte("quartos", lead.quartos_minimo);
+    }
+    if (lead.suites_minimas) {
+      query = query.gte("suites", lead.suites_minimas);
+    }
+    if (lead.banheiros_minimos) {
+      query = query.gte("banheiros", lead.banheiros_minimos);
+    }
+    if (lead.vagas_minimas) {
+      query = query.gte("vagas", lead.vagas_minimas);
+    }
   }
 
   const { data } = await query.order("atualizado_em", { ascending: false }).limit(50);
 
   let imoveis = (data ?? []) as Imovel[];
 
-  if (lead.bairros_interesse?.length) {
+  if (aplicarFiltros && lead.bairros_interesse?.length) {
     const bairros = lead.bairros_interesse.map((b: string) => b.toLowerCase());
     imoveis = imoveis.filter((i) =>
       bairros.some((b: string) => i.bairro?.toLowerCase().includes(b)),
     );
   }
 
-  if (lead.valor_minimo != null || lead.valor_maximo != null) {
+  if (aplicarFiltros && (lead.valor_minimo != null || lead.valor_maximo != null)) {
     imoveis = imoveis.filter((i) => {
       const valor = i.finalidade === "venda" ? i.valor_venda : i.valor_locacao;
       if (valor == null) return false;
@@ -1373,12 +1522,28 @@ export async function deleteProposta(propostaId: string): Promise<AtendimentoAct
   const supabase = await createClient();
   const { data: proposta } = await supabase
     .from("propostas")
-    .select("lead_id")
+    .select("lead_id, status")
     .eq("id", propostaId)
     .eq("corretor_id", corretor.id)
     .maybeSingle();
 
   if (!proposta) return { error: "Proposta não encontrada." };
+
+  if (proposta.status !== "cancelada") {
+    const { error } = await supabase
+      .from("propostas")
+      .update({ status: "cancelada" })
+      .eq("id", propostaId);
+
+    if (error) return { error: "Não foi possível cancelar a proposta." };
+
+    await registrarInteracao(proposta.lead_id as string, "proposta", "Proposta cancelada.");
+    await registrarAuditoria(proposta.lead_id as string, "proposta_cancelada", {
+      proposta_id: propostaId,
+    });
+    revalidateAtendimentoPaths(proposta.lead_id as string);
+    return { success: true, message: "Proposta cancelada." };
+  }
 
   const { error } = await supabase.from("propostas").delete().eq("id", propostaId);
   if (error) return { error: "Não foi possível excluir." };
@@ -1475,11 +1640,32 @@ export async function marcarNegocioPerdido(leadId: string): Promise<AtendimentoA
   if (!corretor) return { error: "Sessão expirada." };
 
   const supabase = await createClient();
+
+  const { data: propostasAtivas } = await supabase
+    .from("propostas")
+    .select("imovel_id")
+    .eq("lead_id", leadId)
+    .eq("corretor_id", corretor.id)
+    .not("status", "in", '("cancelada","recusada")');
+
   await supabase
     .from("leads")
     .update({ etapa: "perdido", atualizado_em: new Date().toISOString() })
     .eq("id", leadId)
     .eq("corretor_id", corretor.id);
+
+  const imovelIds = new Set(
+    (propostasAtivas ?? []).map((p) => p.imovel_id).filter(Boolean) as string[],
+  );
+
+  for (const imovelId of imovelIds) {
+    await atualizarStatusImovelAutomatico(
+      imovelId,
+      "Disponível",
+      "Negócio perdido no atendimento",
+      { lead_id: leadId },
+    );
+  }
 
   await registrarInteracao(leadId, "anotacao", "Negócio perdido.");
   await registrarAuditoria(leadId, "negocio_perdido", {});
