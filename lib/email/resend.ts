@@ -1,4 +1,4 @@
-export const DEFAULT_FROM = "FX Studio <onboarding@resend.dev>";
+export const DEFAULT_FROM = "Deskimob <onboarding@resend.dev>";
 
 export type SendEmailResult = {
   success: boolean;

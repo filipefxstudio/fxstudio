@@ -22,13 +22,13 @@ export async function enviarConviteEquipe(input: {
 }) {
   const to = input.email.trim();
   const appUrl =
-    process.env.NEXT_PUBLIC_SITE_BASE_URL?.replace(/\/$/, "") ?? "https://fxstudio.com.br";
+    process.env.NEXT_PUBLIC_SITE_BASE_URL?.replace(/\/$/, "") ?? "https://deskimob.com.br";
   const papelLabel = papelLabels[input.papel] ?? input.papel;
   const subject = `Convite para equipe — ${input.corretorNome}`;
   const html = `
     <h2>Você foi convidado para a equipe</h2>
     <p>Olá, ${escapeHtml(input.nome)}.</p>
-    <p><strong>${escapeHtml(input.corretorNome)}</strong> convidou você para participar da equipe no FX Studio como <strong>${escapeHtml(papelLabel)}</strong>.</p>
+    <p><strong>${escapeHtml(input.corretorNome)}</strong> convidou você para participar da equipe no Deskimob como <strong>${escapeHtml(papelLabel)}</strong>.</p>
     <p>Acesse o painel para criar sua conta e começar:</p>
     <p><a href="${escapeHtml(appUrl)}/login">${escapeHtml(appUrl)}/login</a></p>
     <p><em>Se você não esperava este convite, pode ignorar este e-mail.</em></p>

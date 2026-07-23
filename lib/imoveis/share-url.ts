@@ -8,7 +8,7 @@ export function getPublicImovelShareUrl(corretorSlug: string, imovelSlug: string
     return `${envBase}/${corretorSlug}/imoveis/${imovelSlug}`;
   }
 
-  const mainDomain = process.env.NEXT_PUBLIC_DOMAIN || "fxstudio.com.br";
+  const mainDomain = process.env.NEXT_PUBLIC_DOMAIN || "deskimob.com.br";
   return `https://${corretorSlug}.${mainDomain}/imoveis/${imovelSlug}`;
 }
 

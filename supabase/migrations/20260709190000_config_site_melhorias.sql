@@ -1,4 +1,4 @@
--- FX Studio — site melhorias: colunas públicas, hero, motivos desativação
+-- Deskimob — site melhorias: colunas públicas, hero, motivos desativação
 
 -- Identidade e tarja
 ALTER TABLE public.corretores ADD COLUMN IF NOT EXISTS site_favicon_url TEXT;

@@ -1,4 +1,4 @@
--- FX Studio — config_ficha_visita (ficha de visita final)
+-- Deskimob — config_ficha_visita (ficha de visita final)
 
 CREATE TABLE IF NOT EXISTS public.config_ficha_visita (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

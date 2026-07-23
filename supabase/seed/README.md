@@ -1,4 +1,4 @@
-# Seed de dados de teste — FX Studio
+# Seed de dados de teste — Deskimob
 
 Script opcional para popular o banco com imóveis, leads, visitas, propostas, negócios e agenda de demonstração.
 

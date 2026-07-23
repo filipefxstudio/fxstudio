@@ -17,7 +17,7 @@ import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 import { getPerfilForUser } from "@/lib/supabase/get-perfil";
 
 export const metadata: Metadata = {
-  title: "Atendimento | FX Studio",
+  title: "Atendimento | Deskimob",
   description: "Detalhes do atendimento",
 };
 

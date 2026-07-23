@@ -165,13 +165,13 @@ function SidebarContent({ collapsed, onNavigate }: SidebarContentProps) {
         )}
       >
         {collapsed ? (
-          <p className="text-lg font-bold">FX</p>
+          <p className="text-lg font-bold">DK</p>
         ) : (
           <>
             <p className="text-xs font-medium uppercase tracking-widest text-white/70">
               CRM Imobiliário
             </p>
-            <p className="mt-1 text-lg font-bold">FX Studio</p>
+            <p className="mt-1 text-lg font-bold">Deskimob</p>
           </>
         )}
       </div>

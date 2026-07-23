@@ -1,4 +1,4 @@
--- FX Studio Etapa 4 — visitas, propostas, negócios, agenda, auditoria
+-- Deskimob Etapa 4 — visitas, propostas, negócios, agenda, auditoria
 
 -- visitas
 CREATE TABLE IF NOT EXISTS public.visitas (

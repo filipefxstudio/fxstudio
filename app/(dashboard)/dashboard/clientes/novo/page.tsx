@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 
 export const metadata: Metadata = {
-  title: "Nova pessoa | FX Studio",
+  title: "Nova pessoa | Deskimob",
 };
 
 export default async function NovoClientePage() {

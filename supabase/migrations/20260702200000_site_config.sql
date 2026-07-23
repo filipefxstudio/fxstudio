@@ -1,4 +1,4 @@
--- FX Studio — site config columns on corretores
+-- Deskimob — site config columns on corretores
 
 ALTER TABLE public.corretores ADD COLUMN IF NOT EXISTS logo_url TEXT;
 ALTER TABLE public.corretores ADD COLUMN IF NOT EXISTS site_cor_primaria VARCHAR(20) DEFAULT '#1E3A5F';

@@ -25,7 +25,7 @@ export function CadastroForm() {
     <Card className="w-full max-w-md border-border/80 shadow-md">
       <CardHeader className="text-center">
         <CardTitle className="text-2xl text-primary">Criar conta</CardTitle>
-        <CardDescription>Comece a usar o FX Studio gratuitamente</CardDescription>
+        <CardDescription>Comece a usar o Deskimob gratuitamente</CardDescription>
       </CardHeader>
       <CardContent>
         <form action={formAction} className="space-y-4">

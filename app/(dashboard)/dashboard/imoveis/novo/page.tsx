@@ -11,7 +11,7 @@ import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 import { getPerfilForUser } from "@/lib/supabase/get-perfil";
 
 export const metadata: Metadata = {
-  title: "Novo imóvel | FX Studio",
+  title: "Novo imóvel | Deskimob",
   description: "Cadastre um novo imóvel no portfólio",
 };
 

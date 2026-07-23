@@ -1,5 +1,5 @@
 export function getMainDomain(): string {
-  return process.env.NEXT_PUBLIC_DOMAIN || "fxstudio.com.br";
+  return process.env.NEXT_PUBLIC_DOMAIN || "deskimob.com.br";
 }
 
 export const RESERVED_APP_PATHS = new Set([

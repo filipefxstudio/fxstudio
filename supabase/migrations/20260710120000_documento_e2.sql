@@ -1,4 +1,4 @@
--- FX Studio Documento E2 — colunas e tabelas da jornada completa
+-- Deskimob Documento E2 — colunas e tabelas da jornada completa
 
 -- leads.temperatura: incluir 'indefinido' como padrão
 ALTER TABLE public.leads

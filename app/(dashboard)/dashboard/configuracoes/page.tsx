@@ -19,7 +19,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { Assinatura, PlanoAssinatura } from "@/types";
 
 export const metadata: Metadata = {
-  title: "Configurações | FX Studio",
+  title: "Configurações | Deskimob",
   description: "Configure perfil, site, WhatsApp e agente de IA",
 };
 

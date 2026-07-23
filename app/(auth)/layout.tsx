@@ -21,7 +21,7 @@ export default async function AuthLayout({
         <p className="text-sm font-medium uppercase tracking-widest text-secondary">
           CRM Imobiliário
         </p>
-        <h1 className="mt-1 text-3xl font-bold text-primary">FX Studio</h1>
+        <h1 className="mt-1 text-3xl font-bold text-primary">Deskimob</h1>
       </div>
       {children}
     </div>

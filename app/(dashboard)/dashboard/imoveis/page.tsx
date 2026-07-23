@@ -8,7 +8,7 @@ import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 import type { StatusImovelSlug } from "@/types";
 
 export const metadata: Metadata = {
-  title: "Imóveis | FX Studio",
+  title: "Imóveis | Deskimob",
   description: "Gerencie os imóveis do seu portfólio",
 };
 

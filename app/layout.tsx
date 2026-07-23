@@ -12,7 +12,7 @@ const roboto = Roboto({
 });
 
 export const metadata: Metadata = {
-  title: "FX Studio — CRM Imobiliário",
+  title: "Deskimob — CRM Imobiliário",
   description: "CRM imobiliário SaaS para corretores autônomos no Brasil",
 };
 

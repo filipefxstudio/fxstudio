@@ -19,7 +19,7 @@ import type { EtapaLead, SituacaoLead, TemperaturaLead } from "@/types";
 import { isEtapaLead } from "@/lib/constants/leads";
 
 export const metadata: Metadata = {
-  title: "Atendimentos | FX Studio",
+  title: "Atendimentos | Deskimob",
   description: "Gestão de atendimentos do corretor",
 };
 

@@ -1,4 +1,4 @@
--- FX Studio Etapa 2 — clientes, perfis, tipos custom, mídias, colunas imoveis
+-- Deskimob Etapa 2 — clientes, perfis, tipos custom, mídias, colunas imoveis
 
 -- ---------------------------------------------------------------------------
 -- perfis (team users linked to corretor account)

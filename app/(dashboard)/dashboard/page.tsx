@@ -12,8 +12,8 @@ import { getPerfilForUser } from "@/lib/supabase/get-perfil";
 import { podeAprovarImovel } from "@/lib/imoveis/aprovacao";
 
 export const metadata: Metadata = {
-  title: "Dashboard | FX Studio",
-  description: "Painel do corretor FX Studio",
+  title: "Dashboard | Deskimob",
+  description: "Painel do corretor Deskimob",
 };
 
 const INITIAL_PERIOD = {

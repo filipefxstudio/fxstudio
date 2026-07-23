@@ -1,5 +1,5 @@
 -- =============================================================================
--- FX Studio — Dados de teste (opcional)
+-- Deskimob — Dados de teste (opcional)
 -- Execute no Supabase SQL Editor com um corretor já cadastrado.
 -- Não remove dados existentes por padrão.
 --

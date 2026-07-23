@@ -65,7 +65,7 @@ export function AbaExportarDados() {
         const blob = await response.blob();
         const filename =
           parseDownloadFilename(response.headers.get("Content-Disposition")) ??
-          "fxstudio-export.zip";
+          "deskimob-export.zip";
 
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");

@@ -1,4 +1,4 @@
--- FX Studio — Atendimentos etapa: leads extensions, config, motivos descarte
+-- Deskimob — Atendimentos etapa: leads extensions, config, motivos descarte
 
 -- leads extensions
 ALTER TABLE public.leads ADD COLUMN IF NOT EXISTS situacao VARCHAR(30) DEFAULT 'em_atendimento';

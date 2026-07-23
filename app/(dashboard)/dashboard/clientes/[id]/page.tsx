@@ -25,7 +25,7 @@ export async function generateMetadata({ params }: ClienteDetalhePageProps): Pro
   const { id } = await params;
   const cliente = await getClienteById(id);
   return {
-    title: cliente ? `${cliente.nome} | Pessoas` : "Pessoa | FX Studio",
+    title: cliente ? `${cliente.nome} | Pessoas` : "Pessoa | Deskimob",
   };
 }
 

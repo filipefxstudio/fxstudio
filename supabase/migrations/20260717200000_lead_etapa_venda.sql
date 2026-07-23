@@ -1,4 +1,4 @@
--- FX Studio — etapa venda para negócios fechados (substitui fechado legado)
+-- Deskimob — etapa venda para negócios fechados (substitui fechado legado)
 
 UPDATE public.leads
 SET etapa = 'venda', atualizado_em = NOW()

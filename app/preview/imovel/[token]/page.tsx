@@ -26,7 +26,7 @@ interface PreviewPageProps {
 }
 
 export const metadata: Metadata = {
-  title: "Preview do imóvel | FX Studio",
+  title: "Preview do imóvel | Deskimob",
   robots: { index: false, follow: false },
 };
 
@@ -60,7 +60,7 @@ export default async function PreviewImovelPage({ params }: PreviewPageProps) {
 
   const titulo = imovel.titulo ?? "Imóvel disponível";
   const valorLabel = getValorExibicao(imovel);
-  const pageUrl = `https://${process.env.NEXT_PUBLIC_DOMAIN ?? "fxstudio.com.br"}/preview/imovel/${token}`;
+  const pageUrl = `https://${process.env.NEXT_PUBLIC_DOMAIN ?? "deskimob.com.br"}/preview/imovel/${token}`;
   const whatsappUrl = buildImovelWhatsAppUrl(corretor as Corretor, imovel, pageUrl);
 
   return (

@@ -35,11 +35,11 @@ export async function GET() {
     );
   }
 
-  const subject = "FX Studio — teste de e-mail";
+  const subject = "Deskimob — teste de e-mail";
   const html = `
     <h2>Teste de e-mail</h2>
     <p>Olá${corretor.nome ? `, ${corretor.nome}` : ""}.</p>
-    <p>Este é um e-mail de teste enviado pelo FX Studio em ${new Date().toLocaleString("pt-BR")}.</p>
+    <p>Este é um e-mail de teste enviado pelo Deskimob em ${new Date().toLocaleString("pt-BR")}.</p>
     <p>Se você recebeu esta mensagem, o envio via Resend está funcionando.</p>
   `;
 

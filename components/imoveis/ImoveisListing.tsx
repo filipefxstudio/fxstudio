@@ -32,7 +32,7 @@ import { getImovelCodigo, getValorNumerico } from "@/lib/imoveis/format";
 import { contemNormalizado } from "@/lib/utils/normalizar";
 import type { Imovel, StatusImovel, StatusImovelSlug } from "@/types";
 
-const VIEW_MODE_STORAGE_KEY = "fxstudio-imoveis-view";
+const VIEW_MODE_STORAGE_KEY = "deskimob-imoveis-view";
 const SORT_STORAGE_KEY = "fx-imoveis-sort";
 
 interface ImoveisListingProps {

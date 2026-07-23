@@ -20,8 +20,8 @@ export async function generateMetadata({ params }: EditarImovelPageProps): Promi
 
   return {
     title: imovel?.titulo
-      ? `Editar ${imovel.titulo} | FX Studio`
-      : "Editar imóvel | FX Studio",
+      ? `Editar ${imovel.titulo} | Deskimob`
+      : "Editar imóvel | Deskimob",
     description: "Edite as informações do imóvel",
   };
 }

@@ -61,7 +61,7 @@ async function geocodeWithNominatim(query: string): Promise<GeocodeResult | null
   url.searchParams.set("countrycodes", "br");
 
   const response = await fetch(url.toString(), {
-    headers: { "User-Agent": "FXStudio/1.0" },
+    headers: { "User-Agent": "Deskimob/1.0" },
   });
 
   if (!response.ok) {

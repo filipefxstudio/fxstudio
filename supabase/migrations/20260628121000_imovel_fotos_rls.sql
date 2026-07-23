@@ -1,4 +1,4 @@
--- FX Studio — RLS policies for table `imovel_fotos`
+-- Deskimob — RLS policies for table `imovel_fotos`
 --
 -- How to apply:
 --   1. Open Supabase Dashboard → SQL Editor → New query

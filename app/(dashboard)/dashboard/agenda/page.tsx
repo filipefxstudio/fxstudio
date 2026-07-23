@@ -6,7 +6,7 @@ import { getAgendaItems } from "@/lib/actions/agenda";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 
 export const metadata: Metadata = {
-  title: "Agenda | FX Studio",
+  title: "Agenda | Deskimob",
   description: "Agenda de atividades do corretor",
 };
 

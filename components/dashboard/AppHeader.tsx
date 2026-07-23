@@ -109,7 +109,7 @@ export function AppHeader({ nome, slug, logoUrl }: AppHeaderProps) {
             className="max-h-7 w-auto max-w-[120px] object-contain"
           />
         ) : (
-          <span className="truncate text-sm font-semibold text-primary">FX Studio</span>
+          <span className="truncate text-sm font-semibold text-primary">Deskimob</span>
         )}
       </div>
 

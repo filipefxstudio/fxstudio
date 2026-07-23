@@ -25,7 +25,7 @@ export function LoginForm() {
     <Card className="w-full max-w-md border-border/80 shadow-md">
       <CardHeader className="text-center">
         <CardTitle className="text-2xl text-primary">Entrar</CardTitle>
-        <CardDescription>Acesse seu painel FX Studio</CardDescription>
+        <CardDescription>Acesse seu painel Deskimob</CardDescription>
       </CardHeader>
       <CardContent>
         <form action={formAction} className="space-y-4">

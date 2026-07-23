@@ -29,7 +29,7 @@ interface SiteImovelDetalheContentProps {
 }
 
 function buildAbsoluteUrl(path: string): string {
-  const mainDomain = process.env.NEXT_PUBLIC_DOMAIN || "fxstudio.com.br";
+  const mainDomain = process.env.NEXT_PUBLIC_DOMAIN || "deskimob.com.br";
   return `https://${mainDomain}${path.startsWith("/") ? path : `/${path}`}`;
 }
 

@@ -1,4 +1,4 @@
--- FX Studio — Storage policies for bucket `imoveis-fotos`
+-- Deskimob — Storage policies for bucket `imoveis-fotos`
 --
 -- How to apply:
 --   1. Open Supabase Dashboard → SQL Editor → New query

@@ -95,7 +95,7 @@ export function FooterSite({ corretor, basePath }: FooterSiteProps) {
 
       <div className="border-t border-white/10">
         <p className="mx-auto max-w-7xl px-4 py-4 text-center text-xs text-white/60 sm:px-6 lg:px-8">
-          © {currentYear} {nomeExibicao}. Powered by FX Studio.
+          © {currentYear} {nomeExibicao}. Powered by Deskimob.
         </p>
       </div>
     </footer>

@@ -7,7 +7,7 @@ import { getPerfisEquipe } from "@/lib/actions/configuracoes";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 
 export const metadata: Metadata = {
-  title: "Pessoas | FX Studio",
+  title: "Pessoas | Deskimob",
   description: "Gerencie leads e proprietários cadastrados no CRM",
 };
 

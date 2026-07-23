@@ -1,4 +1,4 @@
--- FX Studio — dashboard_config thresholds per corretor
+-- Deskimob — dashboard_config thresholds per corretor
 
 CREATE TABLE IF NOT EXISTS public.dashboard_config (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

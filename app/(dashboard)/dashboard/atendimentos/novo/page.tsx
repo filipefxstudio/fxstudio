@@ -11,7 +11,7 @@ import { parseNovoAtendimentoPrefill } from "@/lib/atendimentos/novo-prefill";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 
 export const metadata: Metadata = {
-  title: "Novo atendimento | FX Studio",
+  title: "Novo atendimento | Deskimob",
   description: "Cadastrar novo atendimento",
 };
 

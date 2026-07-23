@@ -487,7 +487,7 @@ export async function convidarPerfil(data: {
     email,
     email_confirm: true,
     user_metadata: {
-      fxstudio_invite: true,
+      deskimob_invite: true,
       corretor_id: corretor.id,
     },
   });

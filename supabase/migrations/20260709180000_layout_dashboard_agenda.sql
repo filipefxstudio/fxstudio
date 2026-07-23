@@ -1,4 +1,4 @@
--- FX Studio — logo CRM, tipos de compromisso da agenda
+-- Deskimob — logo CRM, tipos de compromisso da agenda
 
 ALTER TABLE public.corretores ADD COLUMN IF NOT EXISTS logo_crm_url TEXT;
 

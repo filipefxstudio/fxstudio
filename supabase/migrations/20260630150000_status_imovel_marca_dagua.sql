@@ -1,4 +1,4 @@
--- FX Studio — status_imovel, marca_dagua_config, imoveis columns
+-- Deskimob — status_imovel, marca_dagua_config, imoveis columns
 
 CREATE TABLE IF NOT EXISTS public.status_imovel (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

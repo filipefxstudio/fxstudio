@@ -24,7 +24,7 @@ function resolveTenantRewriteUrl(request: NextRequest): URL | null {
     return null;
   }
 
-  // 2. FX Studio subdomain (e.g. joao.fxstudio.com.br)
+  // 2. Deskimob subdomain (e.g. joao.deskimob.com.br)
   if (ctx.isSubdomain && ctx.tenantFromSubdomain) {
     url.pathname = `/${ctx.tenantFromSubdomain}${url.pathname}`;
     return url;

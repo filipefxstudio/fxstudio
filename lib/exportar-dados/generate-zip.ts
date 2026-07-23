@@ -21,5 +21,5 @@ export async function buildExportZip(files: ExportCsvFile[]): Promise<Buffer> {
 export function buildExportFilename(slug: string, date = new Date()): string {
   const isoDate = date.toISOString().slice(0, 10);
   const safeSlug = slug.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-|-$/g, "") || "conta";
-  return `fxstudio-export-${safeSlug}-${isoDate}.zip`;
+  return `deskimob-export-${safeSlug}-${isoDate}.zip`;
 }

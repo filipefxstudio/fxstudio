@@ -1,4 +1,4 @@
--- FX Studio — garantir colunas de descarte, corrigir FK, RLS UPDATE e reload PostgREST
+-- Deskimob — garantir colunas de descarte, corrigir FK, RLS UPDATE e reload PostgREST
 
 ALTER TABLE public.leads ADD COLUMN IF NOT EXISTS situacao VARCHAR(30) DEFAULT 'em_atendimento';
 ALTER TABLE public.leads ADD COLUMN IF NOT EXISTS motivo_descarte_id UUID;
