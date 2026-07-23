@@ -68,6 +68,7 @@ export default async function EditarImovelPage({ params }: EditarImovelPageProps
         statusList={statusList}
         perfis={perfis}
         perfilAtualId={perfilAtual?.id ?? null}
+        perfil={perfilAtual}
       />
     </div>
   );

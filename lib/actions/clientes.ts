@@ -3,8 +3,39 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { parseLeadObservacoes } from "@/lib/leads/observacoes";
+import {
+  emailValidoParaBusca,
+  findClientePorTelefoneOuEmail,
+  findClientesAutocomplete,
+  MIN_TELEFONE_BUSCA_AUTOCOMPLETE,
+  normalizeEmail,
+  sanitizeTelefone,
+  telefonesEquivalentes,
+} from "@/lib/pessoas/duplicate";
+import {
+  mensagemLeadAtivoMesmoCorretor,
+  mensagemLeadAtivoOutroCorretor,
+  mensagemProprietarioIndisponivel,
+  mensagemAtendimentoEmAndamento,
+  erroDuplicidadePessoa,
+} from "@/lib/pessoas/messages";
+import type {
+  LeadAtivoInfo,
+  PessoaAutocompleteItem,
+  SelecaoPessoaAtendimentoResult,
+  SelecaoPessoaProprietarioResult,
+  VerificacaoPessoaExistente,
+} from "@/lib/pessoas/types";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
+import { getPerfilForUser } from "@/lib/supabase/get-perfil";
 import { createClient } from "@/lib/supabase/server";
+import {
+  clampListLimit,
+  clampListOffset,
+  type ListQueryOptions,
+} from "@/lib/constants/listings";
+import { contemNormalizado } from "@/lib/utils/normalizar";
 import {
   clienteFormSchema,
   type ClienteFormValues,
@@ -29,10 +60,6 @@ export type ClienteSearchResult = {
   pode_vincular: boolean;
   aviso?: string;
 };
-
-function sanitizeTelefone(telefone: string): string {
-  return telefone.replace(/\D/g, "");
-}
 
 function buildClienteInsert(corretorId: string, data: ClienteFormValues) {
   return {
@@ -68,26 +95,550 @@ function buildClienteUpdate(data: ClienteFormValues) {
   };
 }
 
-export async function getClientes(): Promise<Cliente[]> {
+function resolveLeadPerfilId(lead: {
+  perfil_id?: string | null;
+  observacoes?: string | null;
+}): string | null {
+  if (lead.perfil_id) {
+    return lead.perfil_id;
+  }
+
+  return parseLeadObservacoes(lead.observacoes).meta.perfil_id ?? null;
+}
+
+function pertenceAoPerfil(
+  perfilId: string | null | undefined,
+  perfilAtualId: string,
+  verTodos: boolean,
+): boolean {
+  if (verTodos) {
+    return true;
+  }
+
+  return perfilId === perfilAtualId;
+}
+
+function findClienteByTelefone(clientes: Cliente[], telefone: string): Cliente | undefined {
+  return clientes.find((cliente) => telefonesEquivalentes(cliente.telefone, telefone));
+}
+
+export async function verificarPessoaExistente(
+  corretorId: string,
+  telefone?: string,
+  email?: string,
+  clienteIdIgnorar?: string,
+  leadIdIgnorar?: string,
+): Promise<VerificacaoPessoaExistente> {
+  const supabase = await createClient();
+  const match = await findClientePorTelefoneOuEmail(
+    supabase,
+    corretorId,
+    { telefone, email },
+    clienteIdIgnorar,
+    leadIdIgnorar,
+  );
+
+  if (!match) {
+    return { existe: false };
+  }
+
+  return {
+    existe: true,
+    cliente: match.cliente,
+    motivo: match.motivo,
+  };
+}
+
+function leadEstaAtivo(lead: {
+  situacao?: string | null;
+  etapa?: string | null;
+}): boolean {
+  if (lead.situacao === "descartado" || lead.situacao === "negocio_fechado") {
+    return false;
+  }
+  if (lead.etapa === "venda" || lead.etapa === "fechado" || lead.etapa === "perdido") {
+    return false;
+  }
+  return true;
+}
+
+async function buscarLeadsPorContato(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  corretorId: string,
+  contato: { clienteId?: string; telefone?: string; email?: string | null },
+): Promise<LeadAtivoInfo[]> {
+  const { data: leads, error } = await supabase
+    .from("leads")
+    .select(
+      "id, cliente_id, telefone, email, codigo_atendimento, situacao, etapa, perfil_id, atualizado_em, motivo_descarte_id, motivo_descarte_texto, perfil:perfis(id, nome), motivo:motivos_descarte(nome)",
+    )
+    .eq("corretor_id", corretorId)
+    .order("criado_em", { ascending: false });
+
+  if (error || !leads?.length) {
+    if (error) {
+      console.error("[buscarLeadsPorContato] failed", error);
+    }
+    return [];
+  }
+
+  return leads
+    .filter((lead) => {
+      if (contato.clienteId && lead.cliente_id === contato.clienteId) {
+        return true;
+      }
+      if (contato.telefone && telefonesEquivalentes(lead.telefone ?? "", contato.telefone)) {
+        return true;
+      }
+      if (
+        contato.email &&
+        lead.email &&
+        normalizeEmail(lead.email) === normalizeEmail(contato.email)
+      ) {
+        return true;
+      }
+      return false;
+    })
+    .map((lead) => {
+      const perfil = Array.isArray(lead.perfil) ? lead.perfil[0] : lead.perfil;
+      const motivo = Array.isArray(lead.motivo) ? lead.motivo[0] : lead.motivo;
+
+      return {
+        id: lead.id,
+        codigo_atendimento: lead.codigo_atendimento,
+        situacao: lead.situacao,
+        etapa: lead.etapa,
+        perfil_id: lead.perfil_id,
+        perfil_nome: perfil?.nome ?? null,
+        descartado_em: lead.situacao === "descartado" ? lead.atualizado_em : null,
+        motivo_descarte: motivo?.nome ?? lead.motivo_descarte_texto ?? null,
+      };
+    });
+}
+
+export async function buscarPessoasAutocomplete(
+  telefone?: string,
+  email?: string,
+): Promise<PessoaAutocompleteItem[]> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) {
+    return [];
+  }
+
+  const telefoneLimpo = telefone ? sanitizeTelefone(telefone) : "";
+  const emailNorm = email ? normalizeEmail(email) : "";
+
+  if (
+    telefoneLimpo.length < MIN_TELEFONE_BUSCA_AUTOCOMPLETE &&
+    !emailValidoParaBusca(emailNorm)
+  ) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const matches = await findClientesAutocomplete(supabase, corretor.id, {
+    telefone,
+    email,
+  });
+
+  if (!matches.length) {
+    console.warn("[buscarPessoasAutocomplete] nenhum resultado", {
+      telefone: telefoneLimpo,
+      email: emailNorm,
+    });
+  }
+
+  return matches.map((match) => ({
+    id: match.id,
+    nome: match.nome,
+    telefone: match.telefone,
+    email: match.email,
+    eh_construtor_investidor: match.eh_construtor_investidor ?? false,
+    leadId: match.leadId,
+    origem: match.origem,
+  }));
+}
+
+async function resolverPessoaAtendimento(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  corretorId: string,
+  pessoaRef: string | PessoaAutocompleteItem,
+): Promise<PessoaAutocompleteItem | null> {
+  if (typeof pessoaRef === "string") {
+    const { data: cliente } = await supabase
+      .from("clientes")
+      .select("id, nome, telefone, email, eh_construtor_investidor")
+      .eq("id", pessoaRef)
+      .eq("corretor_id", corretorId)
+      .maybeSingle();
+
+    if (!cliente) {
+      return null;
+    }
+
+    return {
+      id: cliente.id,
+      nome: cliente.nome,
+      telefone: cliente.telefone,
+      email: cliente.email,
+      eh_construtor_investidor: cliente.eh_construtor_investidor ?? false,
+      origem: "cliente",
+    };
+  }
+
+  if (pessoaRef.id) {
+    const { data: cliente } = await supabase
+      .from("clientes")
+      .select("id, nome, telefone, email, eh_construtor_investidor")
+      .eq("id", pessoaRef.id)
+      .eq("corretor_id", corretorId)
+      .maybeSingle();
+
+    if (cliente) {
+      return {
+        id: cliente.id,
+        nome: cliente.nome,
+        telefone: cliente.telefone,
+        email: cliente.email,
+        eh_construtor_investidor: cliente.eh_construtor_investidor ?? false,
+        leadId: pessoaRef.leadId,
+        origem: "cliente",
+      };
+    }
+  }
+
+  return pessoaRef;
+}
+
+export async function avaliarSelecaoPessoaAtendimento(
+  pessoaRef: string | PessoaAutocompleteItem,
+  perfilAtualId?: string | null,
+): Promise<SelecaoPessoaAtendimentoResult> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) {
+    return { tipo: "bloqueado", mensagem: "Sessão expirada." };
+  }
+
+  const supabase = await createClient();
+  const pessoa = await resolverPessoaAtendimento(supabase, corretor.id, pessoaRef);
+
+  if (!pessoa) {
+    return { tipo: "bloqueado", mensagem: "Pessoa não encontrada." };
+  }
+
+  const leads = await buscarLeadsPorContato(supabase, corretor.id, {
+    clienteId: pessoa.id || undefined,
+    telefone: pessoa.telefone,
+    email: pessoa.email,
+  });
+  const leadEmAtendimento = leads.find(
+    (lead) => lead.situacao === "em_atendimento" || leadEstaAtivo(lead),
+  );
+  const leadDescartado = leads.find((lead) => lead.situacao === "descartado");
+
+  if (leadEmAtendimento) {
+    const mesmoResponsavel =
+      !leadEmAtendimento.perfil_id ||
+      !perfilAtualId ||
+      leadEmAtendimento.perfil_id === perfilAtualId;
+
+    if (mesmoResponsavel) {
+      return {
+        tipo: "bloqueado",
+        mensagem: mensagemAtendimentoEmAndamento(),
+        leadId: leadEmAtendimento.id,
+        cliente: pessoa,
+      };
+    }
+
+    return {
+      tipo: "bloqueado",
+      mensagem: mensagemLeadAtivoOutroCorretor(leadEmAtendimento.perfil_nome ?? "outro corretor"),
+      leadId: leadEmAtendimento.id,
+      cliente: pessoa,
+    };
+  }
+
+  if (leadDescartado) {
+    return {
+      tipo: "descartado",
+      cliente: pessoa,
+      atendimentoAnterior: leadDescartado,
+    };
+  }
+
+  return { tipo: "permitido", cliente: pessoa };
+}
+
+export async function verificarContatoNovoAtendimento(
+  telefone: string,
+  email?: string,
+): Promise<{
+  sessaoExpirada?: boolean;
+  pessoa?: PessoaAutocompleteItem;
+  avaliacao?: SelecaoPessoaAtendimentoResult;
+}> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) {
+    return { sessaoExpirada: true };
+  }
+
+  const verificacao = await verificarPessoaExistente(corretor.id, telefone, email);
+  if (!verificacao.existe || !verificacao.cliente) {
+    return {};
+  }
+
+  const pessoa: PessoaAutocompleteItem = {
+    id: verificacao.cliente.id,
+    nome: verificacao.cliente.nome,
+    telefone: verificacao.cliente.telefone,
+    email: verificacao.cliente.email,
+    eh_construtor_investidor: verificacao.cliente.eh_construtor_investidor ?? false,
+    origem: verificacao.cliente.id ? "cliente" : "lead",
+  };
+
+  const avaliacao = await avaliarSelecaoPessoaAtendimento(pessoa);
+  return { pessoa, avaliacao };
+}
+
+export async function avaliarSelecaoPessoaProprietario(
+  clienteId: string,
+): Promise<SelecaoPessoaProprietarioResult> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) {
+    return { tipo: "bloqueado", mensagem: "Sessão expirada." };
+  }
+
+  const supabase = await createClient();
+  const { data: cliente } = await supabase
+    .from("clientes")
+    .select("id, nome, telefone, email, eh_construtor_investidor, corretor_id")
+    .eq("id", clienteId)
+    .maybeSingle();
+
+  if (!cliente) {
+    return { tipo: "bloqueado", mensagem: "Pessoa não encontrada." };
+  }
+
+  const pessoa: PessoaAutocompleteItem = {
+    id: cliente.id,
+    nome: cliente.nome,
+    telefone: cliente.telefone,
+    email: cliente.email,
+    eh_construtor_investidor: cliente.eh_construtor_investidor ?? false,
+  };
+
+  if (cliente.eh_construtor_investidor) {
+    return { tipo: "permitido", cliente: pessoa };
+  }
+
+  if (cliente.corretor_id !== corretor.id) {
+    return {
+      tipo: "bloqueado",
+      mensagem: mensagemProprietarioIndisponivel(),
+      cliente: pessoa,
+    };
+  }
+
+  return { tipo: "permitido", cliente: pessoa };
+}
+
+export async function verificarDuplicidadeContatoForm(input: {
+  telefone?: string;
+  email?: string;
+  clienteIdIgnorar?: string;
+  leadIdIgnorar?: string;
+}): Promise<{ duplicado: boolean; mensagem?: string }> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) {
+    return { duplicado: false };
+  }
+
+  const duplicidadeLead = await verificarDuplicidadeContatoLead(
+    input.telefone,
+    input.email,
+    input.leadIdIgnorar,
+    input.clienteIdIgnorar,
+  );
+
+  if (duplicidadeLead.bloqueado) {
+    return { duplicado: true, mensagem: duplicidadeLead.mensagem };
+  }
+
+  const duplicidade = await verificarPessoaExistente(
+    corretor.id,
+    input.telefone,
+    input.email,
+    input.clienteIdIgnorar,
+    input.leadIdIgnorar,
+  );
+
+  if (duplicidade.existe && duplicidade.cliente && duplicidade.motivo) {
+    return {
+      duplicado: true,
+      mensagem: erroDuplicidadePessoa(duplicidade.motivo, duplicidade.cliente.nome),
+    };
+  }
+
+  return { duplicado: false };
+}
+
+export async function verificarDuplicidadeContatoLead(
+  telefone?: string,
+  email?: string,
+  leadIdIgnorar?: string,
+  clienteIdIgnorar?: string,
+): Promise<{ bloqueado: boolean; mensagem?: string; leadId?: string }> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) {
+    return { bloqueado: true, mensagem: "Sessão expirada." };
+  }
+
+  const duplicidade = await verificarPessoaExistente(
+    corretor.id,
+    telefone,
+    email,
+    clienteIdIgnorar,
+    leadIdIgnorar,
+  );
+  if (duplicidade.existe && duplicidade.cliente?.id) {
+    const avaliacao = await avaliarSelecaoPessoaAtendimento(duplicidade.cliente.id);
+    if (avaliacao.tipo === "bloqueado") {
+      return {
+        bloqueado: true,
+        mensagem: avaliacao.mensagem,
+        leadId: avaliacao.leadId,
+      };
+    }
+  }
+
+  const supabase = await createClient();
+  const telefoneLimpo = telefone ? sanitizeTelefone(telefone) : "";
+  const emailNorm = email ? normalizeEmail(email) : "";
+
+  const { data: leads } = await supabase
+    .from("leads")
+    .select("id, telefone, email, situacao, etapa, perfil_id, perfil:perfis(nome)")
+    .eq("corretor_id", corretor.id);
+
+  const leadDuplicado = (leads ?? []).find((lead) => {
+    if (leadIdIgnorar && lead.id === leadIdIgnorar) {
+      return false;
+    }
+    if (!leadEstaAtivo(lead)) {
+      return false;
+    }
+    if (telefoneLimpo.length >= 10 && telefonesEquivalentes(lead.telefone ?? "", telefoneLimpo)) {
+      return true;
+    }
+    if (emailValidoParaBusca(emailNorm) && lead.email && normalizeEmail(lead.email) === emailNorm) {
+      return true;
+    }
+    return false;
+  });
+
+  if (!leadDuplicado) {
+    return { bloqueado: false };
+  }
+
+  const perfil = Array.isArray(leadDuplicado.perfil)
+    ? leadDuplicado.perfil[0]
+    : leadDuplicado.perfil;
+
+  return {
+    bloqueado: true,
+    mensagem: mensagemLeadAtivoMesmoCorretor(),
+    leadId: leadDuplicado.id,
+  };
+}
+
+export async function getClientes(options?: ListQueryOptions): Promise<Cliente[]> {
   const corretor = await getCorretorForUser();
 
   if (!corretor) {
     return [];
   }
 
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("clientes")
-    .select("*, perfil:perfis(id, nome, email, papel)")
-    .eq("corretor_id", corretor.id)
-    .order("criado_em", { ascending: false });
+  const limit = clampListLimit(options?.limit);
+  const offset = clampListOffset(options?.offset);
 
-  if (error) {
-    console.error("[getClientes] failed", error);
-    return [];
+  const perfil = await getPerfilForUser();
+  const verTodos = perfil?.papel === "admin" || perfil?.papel === "gerente";
+  const perfilAtualId = perfil?.id;
+
+  const supabase = await createClient();
+
+  const [clientesRes, leadsRes] = await Promise.all([
+    supabase
+      .from("clientes")
+      .select("*, perfil:perfis(id, nome, email, papel)")
+      .eq("corretor_id", corretor.id)
+      .order("criado_em", { ascending: false })
+      .range(offset, offset + limit - 1),
+    supabase
+      .from("leads")
+      .select("id, corretor_id, perfil_id, nome, telefone, email, observacoes, criado_em, atualizado_em, perfil:perfis(id, nome, email, papel)")
+      .eq("corretor_id", corretor.id)
+      .order("criado_em", { ascending: false })
+      .range(offset, offset + limit - 1),
+  ]);
+
+  if (clientesRes.error) {
+    console.error("[getClientes] clientes failed", clientesRes.error);
   }
 
-  return (data ?? []) as Cliente[];
+  if (leadsRes.error) {
+    console.error("[getClientes] leads failed", leadsRes.error);
+  }
+
+  const clientes = ((clientesRes.data ?? []) as Cliente[]).filter((cliente) =>
+    verTodos || (perfilAtualId ? pertenceAoPerfil(cliente.perfil_id, perfilAtualId, false) : false),
+  );
+
+  const pessoas: Cliente[] = [...clientes];
+
+  for (const lead of leadsRes.data ?? []) {
+    const leadPerfilId = resolveLeadPerfilId(lead);
+
+    if (!verTodos && perfilAtualId && !pertenceAoPerfil(leadPerfilId, perfilAtualId, false)) {
+      continue;
+    }
+
+    const telefone = lead.telefone?.trim() ?? "";
+    if (!telefone) {
+      continue;
+    }
+
+    const clienteExistente = findClienteByTelefone(pessoas, telefone);
+
+    if (clienteExistente) {
+      if (clienteExistente.tipo === "proprietario") {
+        clienteExistente.tipo = "ambos";
+      }
+      continue;
+    }
+
+    pessoas.push({
+      id: lead.id,
+      lead_id: lead.id,
+      corretor_id: lead.corretor_id,
+      perfil_id: leadPerfilId,
+      nome: lead.nome?.trim() || "Sem nome",
+      telefone,
+      email: lead.email,
+      tipo: "lead",
+      eh_construtor_investidor: false,
+      criado_em: lead.criado_em,
+      atualizado_em: lead.atualizado_em,
+      perfil: Array.isArray(lead.perfil)
+        ? (lead.perfil[0] as Cliente["perfil"])
+        : (lead.perfil as Cliente["perfil"]) ?? null,
+    });
+  }
+
+  return pessoas.sort(
+    (a, b) => new Date(b.criado_em).getTime() - new Date(a.criado_em).getTime(),
+  );
 }
 
 export async function getClienteById(id: string): Promise<Cliente | null> {
@@ -184,12 +735,10 @@ export async function searchClientes(query: string): Promise<ClienteSearchResult
   let dbQuery = supabase
     .from("clientes")
     .select("id, nome, telefone, email, tipo, eh_construtor_investidor, corretor_id")
-    .limit(10);
+    .limit(100);
 
   if (digits.length >= 4) {
-    dbQuery = dbQuery.or(`nome.ilike.%${trimmed}%,telefone.ilike.%${digits}%`);
-  } else {
-    dbQuery = dbQuery.ilike("nome", `%${trimmed}%`);
+    dbQuery = dbQuery.or(`telefone.ilike.%${digits}%`);
   }
 
   const { data, error } = await dbQuery;
@@ -199,7 +748,24 @@ export async function searchClientes(query: string): Promise<ClienteSearchResult
     return [];
   }
 
-  return (data ?? []).map((cliente) => {
+  const filtered = (data ?? []).filter((cliente) => {
+    if (contemNormalizado(cliente.nome, trimmed)) {
+      return true;
+    }
+
+    if (digits.length >= 4) {
+      const telefoneDigits = sanitizeTelefone(cliente.telefone ?? "");
+      return (
+        telefoneDigits.includes(digits) ||
+        digits.includes(telefoneDigits) ||
+        telefonesEquivalentes(cliente.telefone ?? "", digits)
+      );
+    }
+
+    return false;
+  });
+
+  return filtered.slice(0, 10).map((cliente) => {
     const isOwn = cliente.corretor_id === corretor.id;
     let pode_vincular = isOwn;
     let aviso: string | undefined;
@@ -210,8 +776,7 @@ export async function searchClientes(query: string): Promise<ClienteSearchResult
         aviso = "Construtor/investidor — vinculação permitida.";
       } else {
         pode_vincular = false;
-        aviso =
-          "Esta pessoa já existe no sistema. Solicite ao gerente para transferir o atendimento.";
+        aviso = mensagemProprietarioIndisponivel();
       }
     }
 
@@ -245,6 +810,18 @@ export async function createCliente(
     return { error: firstIssue?.message ?? "Dados inválidos." };
   }
 
+  const duplicidade = await verificarPessoaExistente(
+    corretor.id,
+    parsed.data.telefone,
+    parsed.data.email,
+  );
+
+  if (duplicidade.existe && duplicidade.cliente && duplicidade.motivo) {
+    return {
+      error: erroDuplicidadePessoa(duplicidade.motivo, duplicidade.cliente.nome),
+    };
+  }
+
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("clientes")
@@ -267,7 +844,7 @@ export async function createClienteFromImovel(
     nome: string;
     telefone: string;
     email?: string;
-    tipo: "proprietario" | "ambos";
+    atender_como_lead: boolean;
     eh_construtor_investidor: boolean;
   },
 ): Promise<ClienteActionResult> {
@@ -280,7 +857,7 @@ export async function createClienteFromImovel(
     profissao: "",
     estado_civil: "",
     observacoes: "",
-    tipo: data.tipo,
+    tipo: data.atender_como_lead ? "ambos" : "proprietario",
     eh_construtor_investidor: data.eh_construtor_investidor,
     perfil_id: null,
   });
@@ -301,6 +878,19 @@ export async function updateCliente(
   if (!parsed.success) {
     const firstIssue = parsed.error.issues[0];
     return { error: firstIssue?.message ?? "Dados inválidos." };
+  }
+
+  const duplicidade = await verificarPessoaExistente(
+    corretor.id,
+    parsed.data.telefone,
+    parsed.data.email,
+    id,
+  );
+
+  if (duplicidade.existe && duplicidade.cliente && duplicidade.motivo) {
+    return {
+      error: erroDuplicidadePessoa(duplicidade.motivo, duplicidade.cliente.nome),
+    };
   }
 
   const supabase = await createClient();

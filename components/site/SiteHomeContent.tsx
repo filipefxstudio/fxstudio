@@ -1,6 +1,6 @@
 import { HeroLarImoveis } from "@/components/site/HeroLarImoveis";
 import { ImoveisDestaqueSection } from "@/components/site/ImoveisDestaqueSection";
-import { getBairrosPublicos, getImoveisPublicos } from "@/lib/site/queries";
+import { getBairrosPublicos, getImoveisDestaquePublicos } from "@/lib/site/queries";
 import type { Corretor } from "@/types";
 
 interface SiteHomeContentProps {
@@ -9,7 +9,7 @@ interface SiteHomeContentProps {
 
 export async function SiteHomeContent({ corretor }: SiteHomeContentProps) {
   const [imoveis, bairros] = await Promise.all([
-    getImoveisPublicos(corretor.id),
+    getImoveisDestaquePublicos(corretor.id),
     getBairrosPublicos(corretor.id),
   ]);
 

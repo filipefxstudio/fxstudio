@@ -16,9 +16,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CARACTERISTICAS_CHECKLIST } from "@/lib/constants/caracteristicas-checklist";
-import { FINALIDADES_IMOVEL, TIPOS_IMOVEL } from "@/lib/constants/imoveis";
+import {
+  FINALIDADES_IMOVEL,
+  STATUS_NOME_TO_SLUG,
+  TIPOS_IMOVEL,
+} from "@/lib/constants/imoveis";
 import { cn } from "@/lib/utils";
-import type { FinalidadeImovel, StatusImovel, TipoImovel } from "@/types";
+import type { FinalidadeImovel, StatusImovel, StatusImovelSlug, TipoImovel } from "@/types";
 
 type MinimoNumericoFilter = "all" | "1" | "2" | "3" | "4";
 
@@ -47,6 +51,61 @@ export const defaultImoveisFilters: ImoveisFilterState = {
   vagasMin: "all",
   caracteristicas: [],
 };
+
+export function getDisponivelStatusId(statusList: StatusImovel[]): string | null {
+  return (
+    statusList.find((status) => STATUS_NOME_TO_SLUG[status.nome] === "disponivel")?.id ?? null
+  );
+}
+
+export function getStatusIdBySlug(
+  statusList: StatusImovel[],
+  slug: StatusImovelSlug,
+): string | null {
+  return statusList.find((status) => STATUS_NOME_TO_SLUG[status.nome] === slug)?.id ?? null;
+}
+
+export function buildDefaultImoveisFilters(statusList: StatusImovel[]): ImoveisFilterState {
+  const disponivelId = getDisponivelStatusId(statusList);
+
+  return {
+    ...defaultImoveisFilters,
+    statusIds: disponivelId ? [disponivelId] : [],
+  };
+}
+
+export function buildInitialImoveisFilters(
+  statusList: StatusImovel[],
+  options?: { bairro?: string; statusSlug?: StatusImovelSlug },
+): ImoveisFilterState {
+  let filters = buildDefaultImoveisFilters(statusList);
+
+  if (options?.statusSlug) {
+    const statusId = getStatusIdBySlug(statusList, options.statusSlug);
+    if (statusId) {
+      filters = { ...filters, statusIds: [statusId] };
+    }
+  }
+
+  if (options?.bairro) {
+    filters = { ...filters, bairros: [options.bairro] };
+  }
+
+  return filters;
+}
+
+export function isDefaultStatusFilter(
+  statusIds: string[],
+  statusList: StatusImovel[],
+): boolean {
+  const disponivelId = getDisponivelStatusId(statusList);
+
+  if (!disponivelId) {
+    return statusIds.length === 0;
+  }
+
+  return statusIds.length === 1 && statusIds[0] === disponivelId;
+}
 
 const MINIMO_OPCOES: { value: MinimoNumericoFilter; label: string }[] = [
   { value: "all", label: "Qualquer" },
@@ -83,14 +142,14 @@ export function ImoveisFilters({
   }
 
   function handleClear() {
-    onChange(defaultImoveisFilters);
+    onChange(buildDefaultImoveisFilters(statusList));
     setAdvancedOpen(false);
   }
 
   const hasActiveFilters =
     filters.finalidade !== "all" ||
     filters.tipos.length > 0 ||
-    filters.statusIds.length > 0 ||
+    !isDefaultStatusFilter(filters.statusIds, statusList) ||
     filters.valorMin !== "" ||
     filters.valorMax !== "" ||
     filters.bairros.length > 0 ||
@@ -288,11 +347,16 @@ export function ImoveisFilters({
   );
 }
 
-export function countActiveFilters(filters: ImoveisFilterState): number {
+export function countActiveFilters(
+  filters: ImoveisFilterState,
+  statusList: StatusImovel[] = [],
+): number {
   let count = 0;
   if (filters.finalidade !== "all") count += 1;
   count += filters.tipos.length;
-  count += filters.statusIds.length;
+  if (!isDefaultStatusFilter(filters.statusIds, statusList)) {
+    count += filters.statusIds.length;
+  }
   if (filters.valorMin) count += 1;
   if (filters.valorMax) count += 1;
   count += filters.bairros.length;
@@ -329,16 +393,18 @@ export function buildImoveisFilterTags(
     });
   }
 
-  for (const statusId of filters.statusIds) {
-    const label = statusList.find((item) => item.id === statusId)?.nome ?? "Status";
-    tags.push({
-      key: `status-${statusId}`,
-      label: `Status: ${label}`,
-      onRemove: () => ({
-        ...filters,
-        statusIds: filters.statusIds.filter((item) => item !== statusId),
-      }),
-    });
+  if (!isDefaultStatusFilter(filters.statusIds, statusList)) {
+    for (const statusId of filters.statusIds) {
+      const label = statusList.find((item) => item.id === statusId)?.nome ?? "Status";
+      tags.push({
+        key: `status-${statusId}`,
+        label: `Status: ${label}`,
+        onRemove: () => ({
+          ...filters,
+          statusIds: filters.statusIds.filter((item) => item !== statusId),
+        }),
+      });
+    }
   }
 
   for (const bairro of filters.bairros) {

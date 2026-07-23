@@ -1,21 +1,15 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
-import {
-  Bath,
-  BedDouble,
-  Calendar,
-  Car,
-  Copy,
-  ExternalLink,
-  Search,
-  Trash2,
-} from "lucide-react";
+import { ChevronDown, Search } from "lucide-react";
 
+import { ActionMenuItem } from "@/components/ui/action-menu-item";
+
+import { ImovelPhotoBadge } from "@/components/atendimentos/ImovelPhotoBadge";
 import { ImovelInteresseAutocomplete } from "@/components/atendimentos/ImovelInteresseAutocomplete";
-import { StatusBadge } from "@/components/imoveis/StatusBadge";
+import { buildImoveisComVisitaAgendada } from "@/lib/atendimentos/badges";
+import { ImovelCardGrid } from "@/components/imoveis/ImovelCardGrid";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,6 +17,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -31,33 +30,32 @@ import {
   removerImovelSelecionado,
   selecionarImovel,
 } from "@/lib/actions/atendimentos";
-import {
-  formatCurrency,
-  getCapaUrl,
-  getFinalidadeLabel,
-  getTipoLabel,
-} from "@/lib/site/format";
-import { getImovelCodigo, getValorNumerico } from "@/lib/imoveis/format";
+import { getPreviewImovelShareUrl } from "@/lib/atendimentos/share-url";
 import { contemNormalizado } from "@/lib/utils/normalizar";
 import { toast } from "@/hooks/use-toast";
-import type { Imovel, LeadImovelSelecionado } from "@/types";
+import type { Imovel, LeadImovelSelecionado, StatusImovel, Visita } from "@/types";
 
 interface ImoveisSelecionadosTabProps {
   leadId: string;
   selecionados: LeadImovelSelecionado[];
-  imovelInteresseId?: string | null;
+  visitas: Visita[];
+  corretorSlug: string;
+  statusList: StatusImovel[];
 }
 
 export function ImoveisSelecionadosTab({
   leadId,
   selecionados,
-  imovelInteresseId,
+  visitas,
+  corretorSlug,
+  statusList,
 }: ImoveisSelecionadosTabProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [busca, setBusca] = useState("");
   const [visitaOpen, setVisitaOpen] = useState<string | null>(null);
-  const [dataVisita, setDataVisita] = useState("");
+  const [dataAgenda, setDataAgenda] = useState("");
+  const [horaAgenda, setHoraAgenda] = useState("");
   const [obsVisita, setObsVisita] = useState("");
 
   const filtrados = useMemo(() => {
@@ -70,14 +68,29 @@ export function ImoveisSelecionadosTab({
     });
   }, [selecionados, busca]);
 
+  const imoveis = useMemo(
+    () => filtrados.map((item) => item.imovel).filter((imovel): imovel is Imovel => Boolean(imovel)),
+    [filtrados],
+  );
+
+  const selecionadosPorImovel = useMemo(
+    () => new Map(filtrados.map((item) => [item.imovel_id, item])),
+    [filtrados],
+  );
+
+  const imoveisComVisita = useMemo(
+    () => buildImoveisComVisitaAgendada(visitas),
+    [visitas],
+  );
+
+  function fecharDialogVisita() {
+    setVisitaOpen(null);
+    setDataAgenda("");
+    setHoraAgenda("");
+    setObsVisita("");
+  }
+
   function remover(imovelId: string) {
-    if (imovelId === imovelInteresseId) {
-      toast({
-        variant: "destructive",
-        title: "Não é possível remover o imóvel de interesse inicial.",
-      });
-      return;
-    }
     startTransition(async () => {
       const result = await removerImovelSelecionado(leadId, imovelId);
       if (result.error) {
@@ -90,20 +103,20 @@ export function ImoveisSelecionadosTab({
   }
 
   function copiarLink(token: string) {
-    const url = `${window.location.origin}/preview/imovel/${token}`;
+    const url = getPreviewImovelShareUrl(token);
     void navigator.clipboard.writeText(url);
     toast({ title: "Link copiado!" });
   }
 
   function agendarVisita(imovelId: string) {
-    if (!dataVisita) {
+    if (!dataAgenda || !horaAgenda) {
       toast({ variant: "destructive", title: "Informe data e hora." });
       return;
     }
     startTransition(async () => {
       const result = await createVisita(leadId, {
         imovel_id: imovelId,
-        data_visita: dataVisita,
+        data_visita: `${dataAgenda}T${horaAgenda}`,
         observacoes: obsVisita,
       });
       if (result.error) {
@@ -111,7 +124,7 @@ export function ImoveisSelecionadosTab({
         return;
       }
       toast({ title: result.message });
-      setVisitaOpen(null);
+      fecharDialogVisita();
       router.refresh();
     });
   }
@@ -158,151 +171,139 @@ export function ImoveisSelecionadosTab({
         />
       </div>
 
-      {filtrados.length === 0 ? (
+      {imoveis.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted-foreground">
           Nenhum imóvel selecionado. Use o Radar ou a busca acima para adicionar imóveis.
         </p>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {filtrados.map((item) => (
-            <SelecionadoCard
-              key={item.id}
-              item={item}
-              imovelInteresseId={imovelInteresseId}
-              disabled={isPending}
-              onAgendar={() => setVisitaOpen(item.imovel_id)}
-              onCompartilhar={() => copiarLink(item.token_compartilhamento)}
-              onRemover={() => remover(item.imovel_id)}
-            />
-          ))}
-        </div>
+        <ImovelCardGrid
+          imoveis={imoveis}
+          corretorSlug={corretorSlug}
+          statusList={statusList}
+          linkTarget="_blank"
+          getCardBadge={(imovel) => {
+            const item = selecionadosPorImovel.get(imovel.id);
+            if (imoveisComVisita.has(imovel.id)) {
+              return <ImovelPhotoBadge variant="visita" />;
+            }
+            return item?.interesse_inicial ? (
+              <span className="rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">
+                Interesse inicial
+              </span>
+            ) : null;
+          }}
+          renderCardActions={(imovel) => {
+            const item = selecionadosPorImovel.get(imovel.id);
+            if (!item) return null;
+
+            return (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isPending}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                  >
+                    Ações
+                    <ChevronDown className="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <ActionMenuItem
+                    action="agendarVisita"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setDataAgenda("");
+                      setHoraAgenda("");
+                      setObsVisita("");
+                      setVisitaOpen(item.imovel_id);
+                    }}
+                  >
+                    Agendar visita
+                  </ActionMenuItem>
+                  <ActionMenuItem
+                    action="compartilharLink"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      copiarLink(item.token_compartilhamento);
+                    }}
+                  >
+                    Compartilhar link
+                  </ActionMenuItem>
+                  <ActionMenuItem
+                    action="remover"
+                    destructive
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      remover(item.imovel_id);
+                    }}
+                  >
+                    Remover
+                  </ActionMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            );
+          }}
+        />
       )}
 
-      <Dialog open={Boolean(visitaOpen)} onOpenChange={(o) => !o && setVisitaOpen(null)}>
+      <Dialog open={Boolean(visitaOpen)} onOpenChange={(o) => !o && fecharDialogVisita()}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Agendar visita</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label>Data e hora</Label>
+              <Label htmlFor="visita-data">Data</Label>
               <Input
-                type="datetime-local"
-                value={dataVisita}
-                onChange={(e) => setDataVisita(e.target.value)}
+                id="visita-data"
+                type="date"
+                value={dataAgenda}
+                onChange={(e) => setDataAgenda(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="visita-hora">Hora</Label>
+              <Input
+                id="visita-hora"
+                type="time"
+                value={horaAgenda}
+                onChange={(e) => setHoraAgenda(e.target.value)}
               />
             </div>
             <div>
               <Label>Observações</Label>
               <Textarea value={obsVisita} onChange={(e) => setObsVisita(e.target.value)} />
             </div>
-            <Button
-              className="w-full"
-              disabled={isPending}
-              onClick={() => visitaOpen && agendarVisita(visitaOpen)}
-            >
-              Agendar
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                disabled={isPending}
+                onClick={fecharDialogVisita}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                className="flex-1"
+                disabled={isPending}
+                onClick={() => visitaOpen && agendarVisita(visitaOpen)}
+              >
+                Confirmar agendamento
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
     </div>
-  );
-}
-
-function SelecionadoCard({
-  item,
-  imovelInteresseId,
-  disabled,
-  onAgendar,
-  onCompartilhar,
-  onRemover,
-}: {
-  item: LeadImovelSelecionado;
-  imovelInteresseId?: string | null;
-  disabled: boolean;
-  onAgendar: () => void;
-  onCompartilhar: () => void;
-  onRemover: () => void;
-}) {
-  const imovel = item.imovel;
-  if (!imovel) return null;
-
-  const capa = getCapaUrl(imovel);
-  const codigo = getImovelCodigo(imovel);
-  const valor = getValorNumerico(imovel);
-  const isInteresseInicial =
-    item.interesse_inicial || item.imovel_id === imovelInteresseId;
-
-  return (
-    <article className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-      <Link href={`/dashboard/imoveis/${imovel.id}`} className="block" target="_blank">
-        <div className="relative aspect-[4/3] bg-muted">
-          {capa ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={capa} alt="" className="size-full object-cover" />
-          ) : (
-            <div className="flex size-full items-center justify-center text-sm text-muted-foreground">
-              Sem foto
-            </div>
-          )}
-          <div className="absolute left-2 top-2">
-            <StatusBadge status={imovel.status} statusImovel={imovel.status_imovel} />
-          </div>
-          {isInteresseInicial ? (
-            <span className="absolute right-2 top-2 rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">
-              Interesse inicial
-            </span>
-          ) : null}
-        </div>
-        <div className="space-y-2 p-4">
-          <p className="text-xs text-muted-foreground">
-            {getTipoLabel(imovel.tipo)} · {getFinalidadeLabel(imovel.finalidade)}
-          </p>
-          <p className="font-bold">{imovel.bairro ?? "—"}</p>
-          <p className="text-sm font-semibold text-primary">{formatCurrency(valor)}</p>
-          <p className="text-xs text-muted-foreground">{codigo}</p>
-          <div className="flex gap-3 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1">
-              <BedDouble className="size-3.5" /> {imovel.quartos}
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <Bath className="size-3.5" /> {imovel.banheiros}
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <Car className="size-3.5" /> {imovel.vagas}
-            </span>
-          </div>
-        </div>
-      </Link>
-      <div className="flex flex-wrap gap-2 border-t border-border p-3">
-        <Button size="sm" variant="outline" onClick={onAgendar}>
-          <Calendar className="size-3.5" />
-          Agendar
-        </Button>
-        <Button size="sm" variant="outline" onClick={onCompartilhar}>
-          <Copy className="size-3.5" />
-          Compartilhar
-        </Button>
-        <Button size="sm" variant="outline" asChild>
-          <a
-            href={`/preview/imovel/${item.token_compartilhamento}`}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <ExternalLink className="size-3.5" />
-          </a>
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={disabled || isInteresseInicial}
-          onClick={onRemover}
-        >
-          <Trash2 className="size-3.5" />
-          Remover
-        </Button>
-      </div>
-    </article>
   );
 }

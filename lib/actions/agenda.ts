@@ -7,6 +7,8 @@ import {
   registrarInteracao,
   updateVisita,
 } from "@/lib/actions/atendimentos";
+import { getTipoCompromisso } from "@/lib/constants/agenda";
+import { formatDateTimeBrasilia, parseLocalDateTimeInput } from "@/lib/dates/format";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 import { createClient } from "@/lib/supabase/server";
 import type { Agenda, StatusAgenda, TipoAgenda, TipoInteracao } from "@/types";
@@ -108,6 +110,13 @@ export async function createAgendaItem(
   const titulo = input.titulo.trim();
   if (!titulo) return { error: "Informe o título da atividade." };
 
+  let dataAtividadeUtc: string;
+  try {
+    dataAtividadeUtc = parseLocalDateTimeInput(input.data_atividade);
+  } catch {
+    return { error: "Data ou hora inválida." };
+  }
+
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("agenda")
@@ -116,7 +125,7 @@ export async function createAgendaItem(
       tipo: input.tipo,
       titulo,
       descricao: input.descricao?.trim() || null,
-      data_atividade: new Date(input.data_atividade).toISOString(),
+      data_atividade: dataAtividadeUtc,
       lead_id: input.lead_id ?? null,
       imovel_id: input.imovel_id ?? null,
       perfil_id: input.perfil_id ?? null,
@@ -131,9 +140,49 @@ export async function createAgendaItem(
     return { error: "Não foi possível criar a atividade." };
   }
 
+  if (input.lead_id) {
+    await registrarInteracao(
+      input.lead_id,
+      interacaoTipoFromAgenda(input.tipo),
+      formatAgendamentoInteracaoTexto(input.tipo, dataAtividadeUtc),
+      { origem: "sistema" },
+    );
+    await registrarAuditoria(input.lead_id, "agenda_criada", {
+      agenda_id: data.id,
+      tipo: input.tipo,
+    });
+    revalidatePath(`/dashboard/atendimentos/${input.lead_id}`);
+  }
+
   revalidatePath("/dashboard/agenda");
   revalidatePath("/dashboard");
   return { success: true, id: data.id, message: "Atividade criada." };
+}
+
+export async function searchLeadsForAgenda(query: string) {
+  const corretor = await getCorretorForUser();
+  if (!corretor) return [];
+
+  const trimmed = query.trim();
+  if (trimmed.length < 2) return [];
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("leads")
+    .select("id, nome, telefone, codigo_atendimento")
+    .eq("corretor_id", corretor.id)
+    .or(
+      `nome.ilike.%${trimmed}%,codigo_atendimento.ilike.%${trimmed}%,telefone.ilike.%${trimmed}%`,
+    )
+    .order("nome", { ascending: true })
+    .limit(10);
+
+  if (error) {
+    console.error("[searchLeadsForAgenda]", error);
+    return [];
+  }
+
+  return data ?? [];
 }
 
 export async function updateAgendaStatus(
@@ -202,6 +251,12 @@ export async function marcarLembreteEnviado(agendaId: string): Promise<void> {
     .from("agenda")
     .update({ lembrete_enviado: true })
     .eq("id", agendaId);
+}
+
+function formatAgendamentoInteracaoTexto(tipo: TipoAgenda, dataAtividadeUtc: string): string {
+  const tipoInfo = getTipoCompromisso(tipo);
+  const dataFmt = formatDateTimeBrasilia(dataAtividadeUtc).replace(", ", " às ");
+  return `Atividade agendada: ${tipoInfo.nome} em ${dataFmt}`;
 }
 
 function interacaoTipoFromAgenda(tipo: TipoAgenda): TipoInteracao {
@@ -362,7 +417,11 @@ export async function editarAgendaItem(
   if (input.descricao !== undefined) payload.descricao = input.descricao.trim() || null;
   if (input.tipo !== undefined) payload.tipo = input.tipo;
   if (input.data_atividade) {
-    payload.data_atividade = new Date(input.data_atividade).toISOString();
+    try {
+      payload.data_atividade = parseLocalDateTimeInput(input.data_atividade);
+    } catch {
+      return { error: "Data ou hora inválida." };
+    }
   }
 
   if (Object.keys(payload).length === 0) {
@@ -380,7 +439,7 @@ export async function editarAgendaItem(
   if (item.visita_id && input.data_atividade) {
     await supabase
       .from("visitas")
-      .update({ data_visita: new Date(input.data_atividade).toISOString() })
+      .update({ data_visita: payload.data_atividade as string })
       .eq("id", item.visita_id)
       .eq("corretor_id", corretor.id);
   }

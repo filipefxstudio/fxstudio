@@ -9,13 +9,14 @@ import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 
 import { KanbanColumn } from "@/components/dashboard/KanbanColumn";
 import { toast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import { updateLeadEtapa } from "@/lib/actions/leads";
 import {
   ETAPA_LEAD_LABELS,
   ETAPAS_LEAD,
   isEtapaLead,
 } from "@/lib/constants/leads";
-import { normalizarEtapaKanban } from "@/lib/leads/etapa-order";
+import { resolveKanbanEtapa } from "@/lib/leads/etapa-order";
 import { createClient } from "@/lib/supabase/client";
 import type { EtapaLead, Lead } from "@/types";
 
@@ -26,7 +27,7 @@ interface FunilKanbanProps {
 }
 
 function getColumnAccent(etapa: EtapaLead): "default" | "success" | "danger" {
-  if (etapa === "fechado") {
+  if (etapa === "venda") {
     return "success";
   }
 
@@ -75,8 +76,7 @@ export function FunilKanban({ initialLeads, corretorId, hideHeader }: FunilKanba
     ) as Record<EtapaLead, Lead[]>;
 
     for (const lead of leads) {
-      const raw = isEtapaLead(lead.etapa) ? lead.etapa : "novo";
-      const etapa = normalizarEtapaKanban(raw);
+      const etapa = resolveKanbanEtapa(lead);
       grouped[etapa].push(lead);
     }
 
@@ -180,7 +180,7 @@ export function FunilKanban({ initialLeads, corretorId, hideHeader }: FunilKanba
   }, [corretorId]);
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       {!hideHeader ? (
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -195,8 +195,13 @@ export function FunilKanban({ initialLeads, corretorId, hideHeader }: FunilKanba
       ) : null}
 
       <DragDropContext onDragEnd={handleDragEnd}>
-        <div className="overflow-x-auto pb-4">
-          <div className="flex min-w-max gap-3">
+        <div
+          className={cn(
+            "w-full min-w-0 overflow-auto pb-4",
+            hideHeader ? "max-h-[calc(100dvh-15rem)]" : "max-h-[calc(100dvh-18rem)]",
+          )}
+        >
+          <div className="flex w-max flex-nowrap gap-3">
             {ETAPAS_LEAD.map((etapa) => (
               <KanbanColumn
                 key={etapa}

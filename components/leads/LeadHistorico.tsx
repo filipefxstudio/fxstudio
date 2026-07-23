@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 
 import type { LeadInteracao, TipoInteracao } from "@/types";
+import { formatDateTimeBrasilia } from "@/lib/dates/format";
 import { cn } from "@/lib/utils";
 
 interface LeadHistoricoProps {
@@ -68,16 +69,6 @@ function formatConteudo(interacao: LeadInteracao): string {
   return interacao.conteudo;
 }
 
-function formatData(iso: string): string {
-  return new Date(iso).toLocaleString("pt-BR", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 export function LeadHistorico({ interacoes }: LeadHistoricoProps) {
   if (interacoes.length === 0) {
     return (
@@ -122,7 +113,7 @@ export function LeadHistorico({ interacoes }: LeadHistoricoProps) {
                   ) : null}
                 </div>
                 <time className="text-xs text-muted-foreground">
-                  {formatData(interacao.criado_em)}
+                  {formatDateTimeBrasilia(interacao.criado_em)}
                 </time>
               </div>
               <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">

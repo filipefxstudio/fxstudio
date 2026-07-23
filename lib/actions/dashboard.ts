@@ -2,6 +2,7 @@
 
 import { getAgendaHoje, getVisitasProximas24h } from "@/lib/actions/agenda";
 import { getDashboardConfig } from "@/lib/actions/dashboard-config";
+import { DEFAULT_DASHBOARD_CONFIG } from "@/lib/constants/dashboard";
 import {
   buildSparklineBuckets,
   calcChangePercent,
@@ -10,6 +11,7 @@ import {
   type DashboardPeriodPreset,
 } from "@/lib/dashboard/period";
 import { formatOrigemDisplay, getUltimaAtividadeEm, isLeadAtivo } from "@/lib/leads/format";
+import { leadMatchesEtapaFilter } from "@/lib/leads/etapa-order";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 import { createClient } from "@/lib/supabase/server";
 import type { DashboardConfig, EtapaLead, FinalidadeImovel, Imovel, Lead, Negocio } from "@/types";
@@ -350,8 +352,8 @@ function buildFunil(
     {
       id: "venda",
       label: tab === "venda" ? "Venda" : "Locação",
-      count: etapaCount(["fechado"]),
-      href: `${base}&etapa=fechado`,
+      count: filtered.filter((l) => leadMatchesEtapaFilter(l, "venda")).length,
+      href: `${base}&etapa=venda`,
     },
     {
       id: "perdido",
@@ -398,6 +400,7 @@ function buildQualidade(
     "visita_agendada",
     "proposta",
     "negociacao",
+    "venda",
     "fechado",
   ];
 
@@ -777,7 +780,15 @@ export async function getDashboardData(
     getVisitasProximas24h(),
   ]);
 
-  if (!config) return null;
+  const dashboardConfig =
+    config ??
+    ({
+      id: "fallback",
+      corretor_id: corretor.id,
+      ...DEFAULT_DASHBOARD_CONFIG,
+      criado_em: new Date().toISOString(),
+      atualizado_em: new Date().toISOString(),
+    } satisfies DashboardConfig);
 
   const leads = (leadsResult.data ?? []) as LeadRow[];
   const imoveis = (imoveisResult.data ?? []) as ImovelRow[];
@@ -827,17 +838,26 @@ export async function getDashboardData(
     funil: buildFunil(leads, finalidadeLead, tab),
     temperatura: buildTemperatura(leads, finalidadeLead),
     qualidade: buildQualidade(leads, finalidadeLead),
-    tempoInteracao: buildTempoInteracao(leads, interacoesPorLead, config, finalidadeLead),
+    tempoInteracao: buildTempoInteracao(
+      leads,
+      interacoesPorLead,
+      dashboardConfig,
+      finalidadeLead,
+    ),
     origem: buildOrigem(leads, finalidadeLead, start, end),
     captacoes: buildCaptacoes(imoveis, finalidadeImovel, start, end),
-    imoveisDesatualizados: buildImoveisDesatualizados(imoveis, finalidadeImovel, config),
+    imoveisDesatualizados: buildImoveisDesatualizados(
+      imoveis,
+      finalidadeImovel,
+      dashboardConfig,
+    ),
     rankingImoveisBairro: buildRankingImoveisBairro(imoveis, finalidadeImovel),
     bairrosLeads: buildBairrosLeads(leads, finalidadeLead),
     alertas: buildAlertas(
       leads,
       imoveis,
       imovelIdsComFoto,
-      config,
+      dashboardConfig,
       finalidadeLead,
       finalidadeImovel,
       interacoesPorLead,

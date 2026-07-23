@@ -1,9 +1,11 @@
 "use server";
 
+import { cache } from "react";
 import { revalidatePath } from "next/cache";
 
 import { DEFAULT_DASHBOARD_CONFIG } from "@/lib/constants/dashboard";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
+import { logPostgrestError } from "@/lib/supabase/postgrest-error";
 import { createClient } from "@/lib/supabase/server";
 import type { DashboardConfig } from "@/types";
 
@@ -13,39 +15,75 @@ export type DashboardConfigActionResult = {
   message?: string;
 };
 
-export async function getDashboardConfig(): Promise<DashboardConfig | null> {
-  const corretor = await getCorretorForUser();
-  if (!corretor) return null;
+function buildFallbackDashboardConfig(corretorId: string): DashboardConfig {
+  const now = new Date().toISOString();
 
+  return {
+    id: "fallback",
+    corretor_id: corretorId,
+    ...DEFAULT_DASHBOARD_CONFIG,
+    criado_em: now,
+    atualizado_em: now,
+  };
+}
+
+async function fetchDashboardConfigRow(
+  corretorId: string,
+): Promise<DashboardConfig | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("dashboard_config")
     .select("*")
-    .eq("corretor_id", corretor.id)
+    .eq("corretor_id", corretorId)
     .maybeSingle();
 
   if (error) {
-    console.error("[getDashboardConfig]", error);
+    logPostgrestError("getDashboardConfig", error);
     return null;
   }
 
-  if (data) {
-    return data as DashboardConfig;
-  }
-
-  const { data: inserted, error: insertError } = await supabase
-    .from("dashboard_config")
-    .insert({ corretor_id: corretor.id, ...DEFAULT_DASHBOARD_CONFIG })
-    .select("*")
-    .single();
-
-  if (insertError) {
-    console.error("[getDashboardConfig insert]", insertError);
-    return null;
-  }
-
-  return inserted as DashboardConfig;
+  return (data as DashboardConfig | null) ?? null;
 }
+
+async function ensureDashboardConfigRow(
+  corretorId: string,
+): Promise<DashboardConfig | null> {
+  const supabase = await createClient();
+
+  const { data: upserted, error: upsertError } = await supabase
+    .from("dashboard_config")
+    .upsert(
+      { corretor_id: corretorId, ...DEFAULT_DASHBOARD_CONFIG },
+      { onConflict: "corretor_id", ignoreDuplicates: true },
+    )
+    .select("*")
+    .maybeSingle();
+
+  if (upsertError) {
+    logPostgrestError("getDashboardConfig upsert", upsertError);
+  } else if (upserted) {
+    return upserted as DashboardConfig;
+  }
+
+  return fetchDashboardConfigRow(corretorId);
+}
+
+export const getDashboardConfig = cache(async (): Promise<DashboardConfig | null> => {
+  const corretor = await getCorretorForUser();
+  if (!corretor) return null;
+
+  const existing = await fetchDashboardConfigRow(corretor.id);
+  if (existing) {
+    return existing;
+  }
+
+  const ensured = await ensureDashboardConfigRow(corretor.id);
+  if (ensured) {
+    return ensured;
+  }
+
+  return buildFallbackDashboardConfig(corretor.id);
+});
 
 export async function saveDashboardConfig(input: {
   leads_verde_dias: number;
@@ -80,7 +118,7 @@ export async function saveDashboardConfig(input: {
   );
 
   if (error) {
-    console.error("[saveDashboardConfig]", error);
+    logPostgrestError("saveDashboardConfig", error);
     return { error: "Não foi possível salvar a configuração." };
   }
 

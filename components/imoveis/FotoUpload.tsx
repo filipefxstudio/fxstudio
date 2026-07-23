@@ -1,14 +1,24 @@
 "use client";
 
 import {
-  DragDropContext,
-  Draggable,
-  Droppable,
-  type DropResult,
-} from "@hello-pangea/dnd";
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import imageCompression from "browser-image-compression";
 import { GripVertical, ImagePlus, Loader2, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,6 +43,7 @@ interface FotoUploadProps {
 const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 const COMPRESSIBLE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const GRID_ITEM_WIDTH = 132;
 
 const COMPRESSION_OPTIONS = {
   maxSizeMB: 0.8,
@@ -64,11 +75,131 @@ function createFotoItem(file: File, ordem: number): FotoItem {
   };
 }
 
+interface SortableFotoItemProps {
+  foto: FotoItem;
+  index: number;
+  disabled?: boolean;
+  onRemove: (id: string) => void;
+  onLegendaChange: (id: string, legenda: string) => void;
+}
+
+function SortableFotoItem({
+  foto,
+  index,
+  disabled,
+  onRemove,
+  onLegendaChange,
+}: SortableFotoItemProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: foto.id,
+    disabled,
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    width: GRID_ITEM_WIDTH,
+  };
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "shrink-0 space-y-2 rounded-xl border border-border bg-card p-2",
+        isDragging && "opacity-40",
+      )}
+    >
+      <div className="relative h-[90px] overflow-hidden rounded-lg bg-muted">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={foto.previewUrl}
+          alt={foto.legenda || `Foto ${index + 1}`}
+          className="size-full object-cover"
+        />
+        {index === 0 ? (
+          <span className="absolute bottom-0 left-0 right-0 bg-primary/90 px-1 py-0.5 text-center text-[10px] font-medium text-primary-foreground">
+            Capa
+          </span>
+        ) : null}
+        <div className="absolute right-1 top-1 flex gap-1">
+          <button
+            type="button"
+            className="cursor-grab rounded bg-background/90 p-1 text-muted-foreground active:cursor-grabbing"
+            aria-label="Reordenar foto"
+            {...attributes}
+            {...listeners}
+            disabled={disabled}
+          >
+            <GripVertical className="size-3.5" />
+          </button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="size-7 bg-background/90 text-destructive hover:text-destructive"
+            onClick={() => onRemove(foto.id)}
+            disabled={disabled}
+            aria-label="Remover foto"
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+        </div>
+      </div>
+      <Input
+        placeholder="Legenda"
+        value={foto.legenda}
+        onChange={(event) => onLegendaChange(foto.id, event.target.value)}
+        disabled={disabled}
+        className="text-xs"
+      />
+    </li>
+  );
+}
+
+function FotoOverlayItem({ foto, index }: { foto: FotoItem; index: number }) {
+  return (
+    <li
+      style={{ width: GRID_ITEM_WIDTH }}
+      className="shrink-0 space-y-2 rounded-xl border border-border bg-card p-2 shadow-md"
+    >
+      <div className="relative h-[90px] overflow-hidden rounded-lg bg-muted">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={foto.previewUrl}
+          alt={foto.legenda || `Foto ${index + 1}`}
+          className="size-full object-cover"
+        />
+        {index === 0 ? (
+          <span className="absolute bottom-0 left-0 right-0 bg-primary/90 px-1 py-0.5 text-center text-[10px] font-medium text-primary-foreground">
+            Capa
+          </span>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
 export function FotoUpload({ fotos, onChange, disabled }: FotoUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [isCompressing, setIsCompressing] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const fotosRef = useRef(fotos);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 5 },
+    }),
+  );
 
   useEffect(() => {
     fotosRef.current = fotos;
@@ -157,16 +288,74 @@ export function FotoUpload({ fotos, onChange, disabled }: FotoUploadProps) {
     onChange(fotos.map((foto) => (foto.id === id ? { ...foto, legenda } : foto)));
   }
 
-  function handleDragEnd(result: DropResult) {
-    if (!result.destination) {
+  function handleSortDragStart(event: DragStartEvent) {
+    setActiveId(String(event.active.id));
+  }
+
+  function handleSortDragEnd(event: DragEndEvent) {
+    setActiveId(null);
+
+    const { active, over } = event;
+
+    if (!over || active.id === over.id) {
       return;
     }
 
-    const items = Array.from(fotos);
-    const [moved] = items.splice(result.source.index, 1);
-    items.splice(result.destination.index, 0, moved);
-    onChange(reorderFotos(items));
+    const oldIndex = fotos.findIndex((foto) => foto.id === active.id);
+    const newIndex = fotos.findIndex((foto) => foto.id === over.id);
+
+    if (oldIndex === -1 || newIndex === -1) {
+      return;
+    }
+
+    onChange(reorderFotos(arrayMove(fotos, oldIndex, newIndex)));
   }
+
+  function handleSortDragCancel() {
+    setActiveId(null);
+  }
+
+  function handleFileDragOver(event: React.DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function handleFileDragEnter(event: React.DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (!disabled && !isCompressing) {
+      setIsDragOver(true);
+    }
+  }
+
+  function handleFileDragLeave(event: React.DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+      setIsDragOver(false);
+    }
+  }
+
+  function handleFileDrop(event: React.DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragOver(false);
+
+    if (disabled || isCompressing) {
+      return;
+    }
+
+    const files = event.dataTransfer.files;
+
+    if (files.length > 0) {
+      void addFiles(files);
+    }
+  }
+
+  const activeFoto = activeId ? fotos.find((foto) => foto.id === activeId) : null;
+  const activeIndex = activeFoto ? fotos.indexOf(activeFoto) : -1;
 
   return (
     <div className="space-y-4">
@@ -180,9 +369,16 @@ export function FotoUpload({ fotos, onChange, disabled }: FotoUploadProps) {
 
       <div
         className={cn(
-          "flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/30 px-4 py-8 text-center",
+          "flex flex-col items-center justify-center rounded-xl border border-dashed px-4 py-8 text-center transition-colors",
+          isDragOver
+            ? "border-primary bg-primary/5"
+            : "border-border bg-muted/30",
           (disabled || isCompressing) && "pointer-events-none opacity-50",
         )}
+        onDragOver={handleFileDragOver}
+        onDragEnter={handleFileDragEnter}
+        onDragLeave={handleFileDragLeave}
+        onDrop={handleFileDrop}
       >
         {isCompressing ? (
           <Loader2 className="size-8 animate-spin text-muted-foreground" />
@@ -224,83 +420,36 @@ export function FotoUpload({ fotos, onChange, disabled }: FotoUploadProps) {
       ) : null}
 
       {fotos.length > 0 ? (
-        <DragDropContext onDragEnd={handleDragEnd}>
-          <Droppable droppableId="fotos">
-            {(provided) => (
-              <ul
-                ref={provided.innerRef}
-                {...provided.droppableProps}
-                className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3"
-              >
-                {fotos.map((foto, index) => (
-                  <Draggable key={foto.id} draggableId={foto.id} index={index}>
-                    {(dragProvided, snapshot) => {
-                      const { style, ...draggableProps } = dragProvided.draggableProps;
+        <DndContext
+          sensors={sensors}
+          onDragStart={handleSortDragStart}
+          onDragEnd={handleSortDragEnd}
+          onDragCancel={handleSortDragCancel}
+        >
+          <SortableContext
+            items={fotos.map((foto) => foto.id)}
+            strategy={rectSortingStrategy}
+          >
+            <ul className="flex flex-wrap gap-3">
+              {fotos.map((foto, index) => (
+                <SortableFotoItem
+                  key={foto.id}
+                  foto={foto}
+                  index={index}
+                  disabled={disabled}
+                  onRemove={handleRemove}
+                  onLegendaChange={handleLegendaChange}
+                />
+              ))}
+            </ul>
+          </SortableContext>
 
-                      return (
-                        <li
-                          ref={dragProvided.innerRef}
-                          {...draggableProps}
-                          style={style as CSSProperties}
-                          className={cn(
-                            "space-y-2 rounded-xl border border-border bg-card p-2",
-                            snapshot.isDragging && "shadow-md",
-                          )}
-                        >
-                          <div className="relative h-[90px] overflow-hidden rounded-lg bg-muted">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={foto.previewUrl}
-                              alt={foto.legenda || `Foto ${index + 1}`}
-                              className="size-full object-cover"
-                            />
-                            {index === 0 ? (
-                              <span className="absolute bottom-0 left-0 right-0 bg-primary/90 px-1 py-0.5 text-center text-[10px] font-medium text-primary-foreground">
-                                Capa
-                              </span>
-                            ) : null}
-                            <div className="absolute right-1 top-1 flex gap-1">
-                              <button
-                                type="button"
-                                className="cursor-grab rounded bg-background/90 p-1 text-muted-foreground active:cursor-grabbing"
-                                aria-label="Reordenar foto"
-                                {...dragProvided.dragHandleProps}
-                                disabled={disabled}
-                              >
-                                <GripVertical className="size-3.5" />
-                              </button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon-sm"
-                                className="size-7 bg-background/90 text-destructive hover:text-destructive"
-                                onClick={() => handleRemove(foto.id)}
-                                disabled={disabled}
-                                aria-label="Remover foto"
-                              >
-                                <Trash2 className="size-3.5" />
-                              </Button>
-                            </div>
-                          </div>
-                          <Input
-                            placeholder="Legenda"
-                            value={foto.legenda}
-                            onChange={(event) =>
-                              handleLegendaChange(foto.id, event.target.value)
-                            }
-                            disabled={disabled}
-                            className="text-xs"
-                          />
-                        </li>
-                      );
-                    }}
-                  </Draggable>
-                ))}
-                {provided.placeholder}
-              </ul>
-            )}
-          </Droppable>
-        </DragDropContext>
+          <DragOverlay dropAnimation={null}>
+            {activeFoto ? (
+              <FotoOverlayItem foto={activeFoto} index={activeIndex} />
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       ) : null}
     </div>
   );

@@ -7,6 +7,7 @@ import { NovoAtendimentoForm } from "@/components/atendimentos/NovoAtendimentoFo
 import { getAtendimentoConfig } from "@/lib/actions/atendimentos";
 import { getTiposImovelCustom } from "@/lib/actions/configuracoes";
 import { getMidiasOrigem, getPerfisForLeads } from "@/lib/actions/leads";
+import { parseNovoAtendimentoPrefill } from "@/lib/atendimentos/novo-prefill";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 
 export const metadata: Metadata = {
@@ -14,12 +15,19 @@ export const metadata: Metadata = {
   description: "Cadastrar novo atendimento",
 };
 
-export default async function NovoAtendimentoPage() {
+export default async function NovoAtendimentoPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const corretor = await getCorretorForUser();
 
   if (!corretor) {
     redirect("/login");
   }
+
+  const params = await searchParams;
+  const prefill = parseNovoAtendimentoPrefill(params);
 
   const [midias, perfis, config, tiposImovel] = await Promise.all([
     getMidiasOrigem(),
@@ -42,6 +50,7 @@ export default async function NovoAtendimentoPage() {
         perfis={perfis}
         tiposImovel={tiposImovel}
         faixaValorPercent={config?.faixa_valor_percent ?? 20}
+        prefill={prefill}
       />
     </div>
   );

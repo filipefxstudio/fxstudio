@@ -39,7 +39,7 @@ function resolveTenantRewriteUrl(request: NextRequest): URL | null {
   return null;
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const session = await updateSession(request);
   const rewriteUrl = resolveTenantRewriteUrl(request);
 

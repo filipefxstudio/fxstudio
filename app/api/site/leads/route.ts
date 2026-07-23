@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { processarLeadIntegracao } from "@/lib/atendimentos/integracao-lead";
 import {
   notificarCorretorContatoSite,
   notificarCorretorInteresseImovel,
@@ -87,25 +88,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Erro de configuração." }, { status: 500 });
   }
 
-  const { data, error } = await supabase
-    .from("leads")
-    .insert({
-      corretor_id: corretor.id,
-      imovel_id: body.imovel_id ?? null,
+  let resultado;
+  try {
+    resultado = await processarLeadIntegracao(supabase, {
+      corretorId: corretor.id,
       nome,
       telefone,
       email: body.email?.trim() || null,
-      origem: "site",
-      etapa: "novo",
-      temperatura: "indefinido",
-      atendido_por: "corretor",
+      imovelId: body.imovel_id ?? null,
       observacoes,
-    })
-    .select("id")
-    .single();
-
-  if (error || !data) {
-    console.error("[site/leads] insert failed", error);
+      origem: "site",
+    });
+  } catch (error) {
+    console.error("[site/leads] processarLeadIntegracao failed", error);
     return NextResponse.json({ error: "Não foi possível registrar seu contato." }, { status: 500 });
   }
 
@@ -142,7 +137,8 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     success: true,
-    leadId: data.id,
+    leadId: resultado.leadId,
+    criado: resultado.criado,
     message: "Mensagem enviada com sucesso! Entraremos em contato em breve.",
   });
 }

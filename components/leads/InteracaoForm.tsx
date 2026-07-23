@@ -4,7 +4,6 @@ import { useState, useTransition } from "react";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -33,7 +32,6 @@ interface InteracaoFormProps {
 export function InteracaoForm({ leadId, onSuccess }: InteracaoFormProps) {
   const [tipo, setTipo] = useState<TipoInteracao>("anotacao");
   const [descricao, setDescricao] = useState("");
-  const [data, setData] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -45,7 +43,6 @@ export function InteracaoForm({ leadId, onSuccess }: InteracaoFormProps) {
       const result = await addInteracao(leadId, {
         tipo,
         descricao,
-        data: data || undefined,
       });
 
       if (result.error) {
@@ -54,7 +51,6 @@ export function InteracaoForm({ leadId, onSuccess }: InteracaoFormProps) {
       }
 
       setDescricao("");
-      setData("");
       onSuccess?.();
     });
   }
@@ -63,31 +59,20 @@ export function InteracaoForm({ leadId, onSuccess }: InteracaoFormProps) {
     <form onSubmit={handleSubmit} className="space-y-4 rounded-xl border border-border bg-card p-4">
       <h3 className="font-semibold text-primary">Registrar interação</h3>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label>Tipo</Label>
-          <Select value={tipo} onValueChange={(v) => setTipo(v as TipoInteracao)}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {TIPOS.map((item) => (
-                <SelectItem key={item.value} value={item.value}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="data-interacao">Data</Label>
-          <Input
-            id="data-interacao"
-            type="datetime-local"
-            value={data}
-            onChange={(e) => setData(e.target.value)}
-          />
-        </div>
+      <div className="space-y-2">
+        <Label>Tipo</Label>
+        <Select value={tipo} onValueChange={(v) => setTipo(v as TipoInteracao)}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {TIPOS.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="space-y-2">

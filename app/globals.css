@@ -127,4 +127,16 @@
   html {
     @apply font-sans;
   }
+  input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="hidden"]),
+  textarea {
+    cursor: text;
+  }
+  select,
+  [data-slot="select-trigger"] {
+    cursor: pointer;
+  }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
 }

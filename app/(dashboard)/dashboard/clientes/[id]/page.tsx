@@ -25,7 +25,7 @@ export async function generateMetadata({ params }: ClienteDetalhePageProps): Pro
   const { id } = await params;
   const cliente = await getClienteById(id);
   return {
-    title: cliente ? `${cliente.nome} | Clientes` : "Cliente | FX Studio",
+    title: cliente ? `${cliente.nome} | Pessoas` : "Pessoa | FX Studio",
   };
 }
 
@@ -71,7 +71,7 @@ export default async function ClienteDetalhePage({
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <Button variant="ghost" size="sm" asChild className="mb-2 -ml-2">
-              <Link href="/dashboard/clientes">← Clientes</Link>
+              <Link href="/dashboard/clientes">← Pessoas</Link>
             </Button>
             <div className="flex flex-wrap items-center gap-3">
               <h2 className="text-xl font-semibold text-primary">{cliente.nome}</h2>

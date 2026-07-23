@@ -7,8 +7,12 @@ import {
 } from "@/lib/auth/errors";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import {
+  seedStatusImovelForCorretor,
+  verifyDefaultStatusImovelSeeded,
+} from "@/lib/imoveis/status-defaults";
 import { slugify } from "@/lib/utils";
-import type { AssinaturaInsert, CorretorInsert } from "@/types";
+import type { AssinaturaInsert, CorretorInsert, PerfilInsert } from "@/types";
 import type { AuthError, PostgrestError } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 
@@ -16,7 +20,9 @@ export type CadastroFailureStep =
   | "signUp"
   | "serviceRoleClient"
   | "corretorInsert"
-  | "assinaturaInsert";
+  | "perfilInsert"
+  | "assinaturaInsert"
+  | "statusImovelInsert";
 
 export type AuthActionState = {
   error?: string;
@@ -274,6 +280,31 @@ export async function cadastroAction(
     };
   }
 
+  const perfilPayload: PerfilInsert = {
+    corretor_id: corretor.id,
+    user_id: user.id,
+    nome,
+    email,
+    telefone: telefone || null,
+    papel: "admin",
+    ativo: true,
+  };
+
+  const { error: perfilError } = await admin.from("perfis").insert(perfilPayload);
+
+  if (perfilError) {
+    logPostgresError("perfilInsert", perfilError);
+    await admin.from("corretores").delete().eq("id", corretor.id);
+
+    return {
+      error: buildUserFacingError(
+        mapCadastroErrorFromPostgres(perfilError),
+        perfilError.message,
+      ),
+      errorDetails: buildDevErrorDetails("perfilInsert", perfilError),
+    };
+  }
+
   const assinaturaPayload: AssinaturaInsert = {
     corretor_id: corretor.id,
     plano: "basico",
@@ -286,6 +317,7 @@ export async function cadastroAction(
 
   if (assinaturaError) {
     logPostgresError("assinaturaInsert", assinaturaError);
+    await admin.from("perfis").delete().eq("corretor_id", corretor.id);
     await admin.from("corretores").delete().eq("id", corretor.id);
 
     return {
@@ -294,6 +326,32 @@ export async function cadastroAction(
         assinaturaError.message,
       ),
       errorDetails: buildDevErrorDetails("assinaturaInsert", assinaturaError),
+    };
+  }
+
+  try {
+    await seedStatusImovelForCorretor(admin, corretor.id);
+    await verifyDefaultStatusImovelSeeded(admin, corretor.id);
+  } catch (error) {
+    logStepError("statusImovelInsert", error);
+    await admin.from("assinaturas").delete().eq("corretor_id", corretor.id);
+    await admin.from("perfis").delete().eq("corretor_id", corretor.id);
+    await admin.from("corretores").delete().eq("id", corretor.id);
+
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Não foi possível configurar os status de imóvel.";
+
+    return {
+      error: buildUserFacingError(
+        "Não foi possível concluir o cadastro. Tente novamente.",
+        message,
+      ),
+      errorDetails: buildDevErrorDetails(
+        "statusImovelInsert",
+        error instanceof Error ? error : new Error(message),
+      ),
     };
   }
 

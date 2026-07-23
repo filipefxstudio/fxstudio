@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 
 export const metadata: Metadata = {
-  title: "Novo cliente | FX Studio",
+  title: "Nova pessoa | FX Studio",
 };
 
 export default async function NovoClientePage() {
@@ -20,7 +20,7 @@ export default async function NovoClientePage() {
   return (
     <div className="flex-1 space-y-4 p-4 md:p-6">
       <Button variant="ghost" size="sm" asChild>
-        <Link href="/dashboard/clientes">← Voltar para clientes</Link>
+        <Link href="/dashboard/clientes">← Voltar para pessoas</Link>
       </Button>
       <ClienteForm mode="create" />
     </div>

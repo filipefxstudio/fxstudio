@@ -1,17 +1,25 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Loader2 } from "lucide-react";
 
 import {
   ImovelInteresseAutocomplete,
   type ImovelSearchResult,
 } from "@/components/atendimentos/ImovelInteresseAutocomplete";
+import { BairrosInteresseInput } from "@/components/atendimentos/BairrosInteresseInput";
+import { AgendarAtividadeForm } from "@/components/agenda/AgendarAtividadeForm";
+import { InteracaoForm } from "@/components/leads/InteracaoForm";
 import { LeadHistorico } from "@/components/leads/LeadHistorico";
 import { Button } from "@/components/ui/button";
 import { CurrencyInput } from "@/components/ui/currency-input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -25,27 +33,37 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   calcularFaixaValorImovel,
+  descartarAtendimento,
+  desqualificarLead,
+  qualificarLead,
   updateAtendimentoDados,
 } from "@/lib/actions/atendimentos";
 import { SITUACAO_LEAD_LABELS } from "@/lib/constants/atendimentos";
 import {
   ETAPA_LEAD_LABELS,
-  ETAPAS_LEAD,
+  ETAPAS_ATENDIMENTO,
   FINALIDADE_BUSCA_OPTIONS,
   TEMPERATURA_LEAD_LABELS,
 } from "@/lib/constants/leads";
-import { formatOrigemDisplay, formatTempoPrimeiraResposta } from "@/lib/leads/format";
+import {
+  etapaParaSelectAtendimento,
+  formatOrigemDisplay,
+  formatTempoPrimeiraResposta,
+  isLeadQualificado,
+} from "@/lib/leads/format";
 import { parseLeadObservacoes } from "@/lib/leads/observacoes";
 import { toast } from "@/hooks/use-toast";
-import type { EtapaLead, Lead, SituacaoLead, TemperaturaLead, TipoImovelCustom } from "@/types";
+import { isValidUuid } from "@/lib/utils/uuid";
+import type { EtapaLead, Lead, MotivoDescarte, SituacaoLead, TemperaturaLead, TipoImovelCustom } from "@/types";
 
 interface AtendimentoDadosTabProps {
   lead: Lead;
   perfis: { id: string; nome: string }[];
   tiposImovel: TipoImovelCustom[];
+  motivos: MotivoDescarte[];
 }
 
-export function AtendimentoDadosTab({ lead, perfis, tiposImovel }: AtendimentoDadosTabProps) {
+export function AtendimentoDadosTab({ lead, perfis, tiposImovel, motivos }: AtendimentoDadosTabProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
@@ -55,8 +73,9 @@ export function AtendimentoDadosTab({ lead, perfis, tiposImovel }: AtendimentoDa
   const [temperatura, setTemperatura] = useState<TemperaturaLead>(
     lead.temperatura ?? "indefinido",
   );
-  const [etapa, setEtapa] = useState<EtapaLead>(lead.etapa);
+  const [etapa, setEtapa] = useState<EtapaLead>(etapaParaSelectAtendimento(lead.etapa));
   const [situacao, setSituacao] = useState<SituacaoLead>(lead.situacao ?? "em_atendimento");
+  const [qualificado, setQualificado] = useState(isLeadQualificado(lead));
 
   const [imovelInteresse, setImovelInteresse] = useState<ImovelSearchResult | null>(
     lead.imovel
@@ -79,7 +98,6 @@ export function AtendimentoDadosTab({ lead, perfis, tiposImovel }: AtendimentoDa
   const [finalidade, setFinalidade] = useState(lead.finalidade_busca ?? "");
   const [tipoImovel, setTipoImovel] = useState(lead.tipo_imovel_busca ?? "");
   const [bairros, setBairros] = useState<string[]>(lead.bairros_interesse ?? []);
-  const [bairroInput, setBairroInput] = useState("");
   const [quartos, setQuartos] = useState(lead.quartos_minimo?.toString() ?? "");
   const [suites, setSuites] = useState(lead.suites_minimas?.toString() ?? "");
   const [banheiros, setBanheiros] = useState(lead.banheiros_minimos?.toString() ?? "");
@@ -99,54 +117,146 @@ export function AtendimentoDadosTab({ lead, perfis, tiposImovel }: AtendimentoDa
   const [infoPermuta, setInfoPermuta] = useState(lead.info_permuta ?? "");
   const [obsFinanceiras, setObsFinanceiras] = useState(lead.obs_financeiras ?? "");
 
+  const [descartarOpen, setDescartarOpen] = useState(false);
+  const [motivoDescarteId, setMotivoDescarteId] = useState("");
+  const [motivoDescarteTexto, setMotivoDescarteTexto] = useState("");
+  const situacaoAnteriorRef = useRef<SituacaoLead>(lead.situacao ?? "em_atendimento");
+
+  useEffect(() => {
+    setQualificado(isLeadQualificado(lead));
+    setEtapa(etapaParaSelectAtendimento(lead.etapa));
+  }, [lead]);
+
   const tiposAtivos = useMemo(
     () => tiposImovel.filter((t) => t.ativo),
     [tiposImovel],
   );
 
-  useEffect(() => {
-    if (!imovelInteresse) return;
+  function handleImovelInteresseChange(imovel: ImovelSearchResult | null) {
+    if (!imovel) {
+      setFinalidade("");
+      setTipoImovel("");
+      setBairros([]);
+      setValorMin(null);
+      setValorMax(null);
+      setImovelInteresse(null);
+      return;
+    }
+
+    setImovelInteresse(imovel);
+
     startTransition(async () => {
-      const faixa = await calcularFaixaValorImovel(imovelInteresse.id);
+      const faixa = await calcularFaixaValorImovel(imovel.id);
       if (faixa) {
         setValorMin(faixa.min);
         setValorMax(faixa.max);
       }
-      if (imovelInteresse.finalidade === "venda") setFinalidade("compra");
-      if (imovelInteresse.finalidade === "locacao") setFinalidade("locacao");
-      if (imovelInteresse.tipo) setTipoImovel(imovelInteresse.tipo);
-      if (imovelInteresse.bairro && !bairros.includes(imovelInteresse.bairro)) {
-        setBairros((prev) => [...prev, imovelInteresse.bairro!]);
+      if (imovel.finalidade === "venda") setFinalidade("compra");
+      if (imovel.finalidade === "locacao") setFinalidade("locacao");
+      if (imovel.tipo) setTipoImovel(imovel.tipo);
+      if (imovel.bairro) {
+        setBairros((prev) => (prev.includes(imovel.bairro!) ? prev : [...prev, imovel.bairro!]));
       }
     });
-  }, [imovelInteresse]);
+  }
+
+  function handleSituacaoChange(nova: SituacaoLead) {
+    if (nova === "descartado" && situacao !== "descartado") {
+      situacaoAnteriorRef.current = situacao;
+      setSituacao(nova);
+      setMotivoDescarteId("");
+      setMotivoDescarteTexto("");
+      setDescartarOpen(true);
+      return;
+    }
+    setSituacao(nova);
+    save({ situacao: nova });
+  }
+
+  function cancelarDescarte() {
+    setSituacao(situacaoAnteriorRef.current);
+    setMotivoDescarteId("");
+    setMotivoDescarteTexto("");
+    setDescartarOpen(false);
+  }
+
+  function confirmarDescarte() {
+    if (!isValidUuid(motivoDescarteId)) {
+      toast({ variant: "destructive", title: "Selecione um motivo." });
+      return;
+    }
+    if (!motivoDescarteTexto.trim()) {
+      toast({ variant: "destructive", title: "Informe informações adicionais." });
+      return;
+    }
+
+    startTransition(async () => {
+      const result = await descartarAtendimento(lead.id, motivoDescarteId, motivoDescarteTexto);
+      if (result.error) {
+        toast({ variant: "destructive", title: "Erro", description: result.error });
+        setSituacao(situacaoAnteriorRef.current);
+        return;
+      }
+      toast({ title: result.message });
+      setDescartarOpen(false);
+      router.refresh();
+    });
+  }
+
+  function parseNumeroMinimo(valor: string): number | null {
+    if (valor.trim() === "") return null;
+    const numero = Number(valor);
+    return Number.isFinite(numero) ? numero : null;
+  }
+
+  function buildPreferenciasPayload(): Parameters<typeof updateAtendimentoDados>[1] {
+    return {
+      temperatura,
+      etapa,
+      situacao,
+      imovel_id: imovelInteresse?.id ?? null,
+      finalidade_busca: finalidade || null,
+      tipo_imovel_busca: tipoImovel,
+      bairros_interesse: bairros,
+      quartos_minimo: parseNumeroMinimo(quartos),
+      suites_minimas: parseNumeroMinimo(suites),
+      banheiros_minimos: parseNumeroMinimo(banheiros),
+      vagas_minimas: parseNumeroMinimo(vagas),
+      valor_minimo: valorMin,
+      valor_maximo: valorMax,
+      prazo_decisao: prazo || null,
+      observacoes: obsTexto,
+      entrada_fgts: entradaFgts,
+      entrada_recursos_proprios: entradaProprios,
+      financiamento_aprovado: finAprovado,
+      possui_imovel_venda: possuiImovel,
+      interesse_permuta: interessePermuta,
+      info_permuta: infoPermuta,
+      obs_financeiras: obsFinanceiras,
+    };
+  }
+
+  function handleQualificadoChange(checked: boolean) {
+    setQualificado(checked);
+    startTransition(async () => {
+      const result = checked
+        ? await qualificarLead(lead.id)
+        : await desqualificarLead(lead.id);
+
+      if (result.error) {
+        toast({ variant: "destructive", title: "Erro", description: result.error });
+        setQualificado(!checked);
+        return;
+      }
+
+      toast({ title: result.message });
+      router.refresh();
+    });
+  }
 
   function save(partial?: Parameters<typeof updateAtendimentoDados>[1]) {
     startTransition(async () => {
-      const result = await updateAtendimentoDados(lead.id, partial ?? {
-        temperatura,
-        etapa,
-        situacao,
-        imovel_id: imovelInteresse?.id ?? null,
-        finalidade_busca: finalidade || undefined,
-        tipo_imovel_busca: tipoImovel,
-        bairros_interesse: bairros,
-        quartos_minimo: quartos ? Number(quartos) : null,
-        suites_minimas: suites ? Number(suites) : null,
-        banheiros_minimos: banheiros ? Number(banheiros) : null,
-        vagas_minimas: vagas ? Number(vagas) : null,
-        valor_minimo: valorMin,
-        valor_maximo: valorMax,
-        prazo_decisao: prazo || null,
-        observacoes: obsTexto,
-        entrada_fgts: entradaFgts,
-        entrada_recursos_proprios: entradaProprios,
-        financiamento_aprovado: finAprovado,
-        possui_imovel_venda: possuiImovel,
-        interesse_permuta: interessePermuta,
-        info_permuta: infoPermuta,
-        obs_financeiras: obsFinanceiras,
-      });
+      const result = await updateAtendimentoDados(lead.id, partial ?? buildPreferenciasPayload());
 
       if (result.error) {
         toast({ variant: "destructive", title: "Erro", description: result.error });
@@ -157,18 +267,12 @@ export function AtendimentoDadosTab({ lead, perfis, tiposImovel }: AtendimentoDa
     });
   }
 
-  function addBairro() {
-    const b = bairroInput.trim();
-    if (b && !bairros.includes(b)) setBairros((prev) => [...prev, b]);
-    setBairroInput("");
-  }
-
   return (
     <div className="space-y-6">
       <section className="space-y-4 rounded-xl border border-border p-4">
         <h3 className="font-semibold text-primary">Status</h3>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-4 lg:flex lg:flex-wrap lg:items-end">
+          <div className="w-fit min-w-0 space-y-2">
             <Label>Temperatura</Label>
             <Select
               value={temperatura}
@@ -177,7 +281,7 @@ export function AtendimentoDadosTab({ lead, perfis, tiposImovel }: AtendimentoDa
                 save({ temperatura: v as TemperaturaLead });
               }}
             >
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-auto min-w-[9rem]"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {(Object.keys(TEMPERATURA_LEAD_LABELS) as TemperaturaLead[]).map((t) => (
                   <SelectItem key={t} value={t}>{TEMPERATURA_LEAD_LABELS[t]}</SelectItem>
@@ -185,7 +289,7 @@ export function AtendimentoDadosTab({ lead, perfis, tiposImovel }: AtendimentoDa
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-2">
+          <div className="w-fit min-w-0 space-y-2">
             <Label>Etapa</Label>
             <Select
               value={etapa}
@@ -194,30 +298,36 @@ export function AtendimentoDadosTab({ lead, perfis, tiposImovel }: AtendimentoDa
                 save({ etapa: v as EtapaLead });
               }}
             >
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-auto min-w-[9rem]"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {ETAPAS_LEAD.map((e) => (
+                {ETAPAS_ATENDIMENTO.map((e) => (
                   <SelectItem key={e} value={e}>{ETAPA_LEAD_LABELS[e]}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-2">
+          <div className="w-fit min-w-0 space-y-2">
             <Label>Situação</Label>
             <Select
               value={situacao}
-              onValueChange={(v) => {
-                setSituacao(v as SituacaoLead);
-                save({ situacao: v as SituacaoLead });
-              }}
+              onValueChange={(v) => handleSituacaoChange(v as SituacaoLead)}
             >
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-auto min-w-[9rem]"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {(Object.keys(SITUACAO_LEAD_LABELS) as SituacaoLead[]).map((s) => (
                   <SelectItem key={s} value={s}>{SITUACAO_LEAD_LABELS[s]}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div className="flex w-fit items-center gap-2 self-end pb-2">
+            <Switch
+              id="qualificado"
+              checked={qualificado}
+              onCheckedChange={handleQualificadoChange}
+              disabled={isPending}
+            />
+            <Label htmlFor="qualificado">Qualificado</Label>
           </div>
         </div>
       </section>
@@ -226,15 +336,19 @@ export function AtendimentoDadosTab({ lead, perfis, tiposImovel }: AtendimentoDa
         <h3 className="font-semibold text-primary">Interesse</h3>
         <ImovelInteresseAutocomplete
           value={imovelInteresse}
-          onChange={setImovelInteresse}
+          onChange={handleImovelInteresseChange}
           disabled={isPending}
         />
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label>Finalidade</Label>
-            <Select value={finalidade} onValueChange={setFinalidade}>
+            <Select
+              value={finalidade || "__none__"}
+              onValueChange={(v) => setFinalidade(v === "__none__" ? "" : v)}
+            >
               <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
               <SelectContent>
+                <SelectItem value="__none__">Não definido</SelectItem>
                 {FINALIDADE_BUSCA_OPTIONS.map((o) => (
                   <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                 ))}
@@ -243,9 +357,13 @@ export function AtendimentoDadosTab({ lead, perfis, tiposImovel }: AtendimentoDa
           </div>
           <div className="space-y-2">
             <Label>Tipo de imóvel</Label>
-            <Select value={tipoImovel} onValueChange={setTipoImovel}>
+            <Select
+              value={tipoImovel || "__none__"}
+              onValueChange={(v) => setTipoImovel(v === "__none__" ? "" : v)}
+            >
               <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
               <SelectContent>
+                <SelectItem value="__none__">—</SelectItem>
                 {tiposAtivos.map((t) => (
                   <SelectItem key={t.id} value={t.nome.toLowerCase()}>
                     {t.nome}
@@ -256,23 +374,20 @@ export function AtendimentoDadosTab({ lead, perfis, tiposImovel }: AtendimentoDa
           </div>
           <div className="space-y-2 sm:col-span-2">
             <Label>Bairros</Label>
-            <div className="flex gap-2">
-              <Input
-                value={bairroInput}
-                onChange={(e) => setBairroInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addBairro())}
-              />
-              <Button type="button" variant="outline" onClick={addBairro}>Adicionar</Button>
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {bairros.map((b) => (
-                <span key={b} className="rounded-full bg-muted px-2 py-0.5 text-xs">{b}</span>
-              ))}
-            </div>
+            <BairrosInteresseInput
+              value={bairros}
+              onChange={setBairros}
+              disabled={isPending}
+            />
           </div>
           <div className="space-y-2">
             <Label>Quartos mín.</Label>
-            <Input type="number" value={quartos} onChange={(e) => setQuartos(e.target.value)} />
+            <Input
+              type="number"
+              min={0}
+              value={quartos}
+              onChange={(e) => setQuartos(e.target.value)}
+            />
           </div>
           <div className="space-y-2">
             <Label>Suítes mín.</Label>
@@ -379,10 +494,79 @@ export function AtendimentoDadosTab({ lead, perfis, tiposImovel }: AtendimentoDa
         </dl>
       </section>
 
-      <section className="rounded-xl border border-border p-4">
-        <h3 className="mb-4 font-semibold text-primary">Histórico de interações</h3>
+      <section className="space-y-4 rounded-xl border border-border p-4">
+        <h3 className="font-semibold text-primary">Histórico de interações</h3>
+        <InteracaoForm leadId={lead.id} onSuccess={() => router.refresh()} />
+        <AgendarAtividadeForm
+          leadId={lead.id}
+          leadNome={lead.nome ?? undefined}
+          requireFuture
+          onSuccess={() => router.refresh()}
+        />
         <LeadHistorico interacoes={lead.interacoes ?? []} />
       </section>
+
+      <Dialog
+        open={descartarOpen}
+        onOpenChange={(open) => {
+          if (!open) cancelarDescarte();
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar descarte</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Informe o motivo e detalhes adicionais para descartar este atendimento.
+          </p>
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label>Motivo *</Label>
+              <Select value={motivoDescarteId} onValueChange={setMotivoDescarteId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione" />
+                </SelectTrigger>
+                <SelectContent>
+                  {motivos.filter((m) => m.ativo).map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Informações adicionais *</Label>
+              <Textarea
+                value={motivoDescarteTexto}
+                onChange={(e) => setMotivoDescarteTexto(e.target.value)}
+                rows={3}
+                required
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                disabled={isPending}
+                onClick={cancelarDescarte}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                className="flex-1"
+                disabled={isPending}
+                onClick={confirmarDescarte}
+              >
+                {isPending ? <Loader2 className="size-4 animate-spin" /> : "Confirmar descarte"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

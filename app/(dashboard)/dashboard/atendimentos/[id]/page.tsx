@@ -11,8 +11,10 @@ import {
   podeTransferirAtendimento,
 } from "@/lib/actions/atendimentos";
 import { getTiposImovelCustom } from "@/lib/actions/configuracoes";
+import { getStatusImovelList } from "@/lib/actions/imoveis";
 import { getPerfisForLeads } from "@/lib/actions/leads";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
+import { getPerfilForUser } from "@/lib/supabase/get-perfil";
 
 export const metadata: Metadata = {
   title: "Atendimento | FX Studio",
@@ -39,12 +41,15 @@ export default async function AtendimentoDetailPage({ params }: PageProps) {
 
   const { lead, visitas, propostas, negocios, imoveisSelecionados, auditoria } = data;
 
-  const [perfis, imoveisRadar, motivos, podeTransferir, tiposImovel] = await Promise.all([
+  const [perfis, imoveisRadar, motivos, podeTransferir, tiposImovel, statusList, perfilAtual] =
+    await Promise.all([
     getPerfisForLeads(),
     getImoveisRadar(id),
     getMotivosDescarte(),
     podeTransferirAtendimento(),
     getTiposImovelCustom(),
+    getStatusImovelList(corretor.id),
+    getPerfilForUser(),
   ]);
 
   return (
@@ -60,6 +65,7 @@ export default async function AtendimentoDetailPage({ params }: PageProps) {
       <AtendimentoClient
         lead={lead}
         perfis={perfis}
+        perfilAtualId={perfilAtual?.id ?? null}
         imoveisRadar={imoveisRadar}
         visitas={visitas}
         propostas={propostas}
@@ -69,6 +75,8 @@ export default async function AtendimentoDetailPage({ params }: PageProps) {
         motivos={motivos}
         podeTransferir={podeTransferir}
         tiposImovel={tiposImovel}
+        corretorSlug={corretor.slug}
+        statusList={statusList}
       />
     </div>
   );

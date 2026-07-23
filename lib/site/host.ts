@@ -69,3 +69,7 @@ export function isReservedAppPath(pathname: string): boolean {
   const segment = pathname.split("/").filter(Boolean)[0];
   return segment ? RESERVED_APP_PATHS.has(segment) : false;
 }
+
+export function isReservedTenantSlug(slug: string): boolean {
+  return RESERVED_APP_PATHS.has(slug.toLowerCase());
+}

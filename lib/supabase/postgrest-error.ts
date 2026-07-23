@@ -39,3 +39,13 @@ export function isSchemaMismatchError(error: PostgrestError): boolean {
     )
   );
 }
+
+/** Extracts a missing column name from PostgREST/Postgres schema errors. */
+export function extractMissingColumn(error: PostgrestError): string | null {
+  const message = error.message ?? "";
+  const match =
+    message.match(/Could not find the '([^']+)' column/i) ??
+    message.match(/column "([^"]+)" (?:of relation .* )?does not exist/i);
+
+  return match?.[1] ?? null;
+}

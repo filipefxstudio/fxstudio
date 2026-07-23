@@ -1,11 +1,15 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { ArrowUpDown, MessageCircle, MoreVertical, Phone, Plus, Trash2, UserCog } from "lucide-react";
+import { ArrowUpDown, MessageCircle, MoreVertical, Phone } from "lucide-react";
+
+import { ActionMenuIcon } from "@/components/ui/action-menu-item";
+import { ACTION_MENU_DESTRUCTIVE_CLASS } from "@/lib/ui/action-menu-icons";
+import { cn } from "@/lib/utils";
 
 import { AtendimentoModals } from "@/components/atendimentos/AtendimentoModals";
+import { NovoAtendimentoTrigger } from "@/components/atendimentos/NovoAtendimentoTrigger";
 import { FunilKanban } from "@/components/dashboard/FunilKanban";
 import { LeadCardGrid } from "@/components/leads/LeadCardGrid";
 import { LeadCardList } from "@/components/leads/LeadCardList";
@@ -15,6 +19,7 @@ import {
   LeadsFilters,
   type LeadsFilterState,
 } from "@/components/leads/LeadsFilters";
+import { matchesLeadsFilters } from "@/lib/leads/filters";
 import { LeadsToolbar } from "@/components/leads/LeadsToolbar";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,13 +40,12 @@ import {
   type LeadsViewMode,
 } from "@/lib/constants/config";
 import { ETAPA_FUNIL_ORDEM } from "@/lib/leads/etapa-order";
-import { parseLeadObservacoes } from "@/lib/leads/observacoes";
-import { getUltimaAtividadeEm, isLeadAtivo } from "@/lib/leads/format";
+import { isLeadAtivo } from "@/lib/leads/format";
 import { buildTelLink, buildWhatsAppLink } from "@/lib/leads/format";
 import { marcarContatoFeito, qualificarLead } from "@/lib/actions/atendimentos";
 import { toast } from "@/hooks/use-toast";
 import { contemNormalizado } from "@/lib/utils/normalizar";
-import type { Lead, MidiaOrigem, MotivoDescarte } from "@/types";
+import type { Lead, MidiaOrigem, MotivoDescarte, TipoImovelCustom } from "@/types";
 
 interface AtendimentosPageProps {
   initialLeads: Lead[];
@@ -53,6 +57,7 @@ interface AtendimentosPageProps {
   podeExcluir: boolean;
   initialFilters?: Partial<LeadsFilterState>;
   initialBusca?: string;
+  tiposImovel?: TipoImovelCustom[];
 }
 
 function matchesSearch(lead: Lead, query: string): boolean {
@@ -67,42 +72,6 @@ function matchesSearch(lead: Lead, query: string): boolean {
     contemNormalizado(lead.codigo_atendimento, query) ||
     (digits.length > 0 && telefoneDigits.includes(digits))
   );
-}
-
-function matchesFilters(lead: Lead, filters: LeadsFilterState): boolean {
-  if (!isLeadAtivo(lead)) return false;
-
-  if (filters.temperatura !== "all" && lead.temperatura !== filters.temperatura) {
-    return false;
-  }
-
-  if (filters.etapa !== "all" && lead.etapa !== filters.etapa) {
-    return false;
-  }
-
-  if (filters.finalidade !== "all" && lead.finalidade_busca !== filters.finalidade) {
-    return false;
-  }
-
-  if (filters.origem !== "all") {
-    const match =
-      lead.origem === filters.origem ||
-      lead.origem.toLowerCase() === filters.origem.toLowerCase();
-    if (!match) return false;
-  }
-
-  if (filters.perfilId !== "all") {
-    const leadPerfilId = lead.perfil_id ?? parseLeadObservacoes(lead.observacoes).meta.perfil_id;
-    if (leadPerfilId !== filters.perfilId) return false;
-  }
-
-  if (filters.semInteracaoDias !== null) {
-    const limite = new Date();
-    limite.setDate(limite.getDate() - filters.semInteracaoDias);
-    if (new Date(getUltimaAtividadeEm(lead)) > limite) return false;
-  }
-
-  return true;
 }
 
 function sortLeads(leads: Lead[], mode: AtendimentosSortMode): Lead[] {
@@ -142,6 +111,7 @@ export function AtendimentosPage({
   podeExcluir,
   initialFilters,
   initialBusca = "",
+  tiposImovel = [],
 }: AtendimentosPageProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -203,12 +173,21 @@ export function AtendimentosPage({
     localStorage.setItem(STORAGE_KEY_ATENDIMENTOS_SORT, mode);
   }
 
+  function handleClearFilters() {
+    setFilters({ ...defaultLeadsFilters });
+    setSearch("");
+    if (initialBusca || (initialFilters && Object.keys(initialFilters).length > 0)) {
+      router.replace("/dashboard/atendimentos");
+    }
+  }
+
   const filteredLeads = useMemo(() => {
     const filtered = initialLeads.filter(
-      (lead) => matchesSearch(lead, search) && matchesFilters(lead, filters),
+      (lead) =>
+        matchesSearch(lead, search) && matchesLeadsFilters(lead, filters, viewMode),
     );
     return sortLeads(filtered, sortMode);
-  }, [initialLeads, search, filters, sortMode]);
+  }, [initialLeads, search, filters, sortMode, viewMode]);
 
   const ativosCount = useMemo(
     () => initialLeads.filter(isLeadAtivo).length,
@@ -255,12 +234,7 @@ export function AtendimentosPage({
             {ativosCount === 1 ? "" : "s"}
           </p>
         </div>
-        <Button asChild>
-          <Link href="/dashboard/atendimentos/novo">
-            <Plus data-icon="inline-start" />
-            Novo atendimento
-          </Link>
-        </Button>
+        <NovoAtendimentoTrigger />
       </div>
 
       <LeadsToolbar
@@ -295,9 +269,11 @@ export function AtendimentosPage({
         <LeadsFilters
           filters={filters}
           onChange={setFilters}
+          onClear={handleClearFilters}
           midias={midias}
           perfis={perfis}
           diasAlertaDefault={diasAlerta}
+          tiposImovel={tiposImovel}
         />
       ) : null}
 
@@ -458,7 +434,7 @@ function AtendimentoCardActions({
             <button
               type="button"
               disabled={disabled}
-              className="block w-full px-3 py-2 text-left text-xs hover:bg-muted"
+              className="flex w-full items-center gap-1 px-3 py-2 text-left text-xs hover:bg-muted"
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -466,12 +442,13 @@ function AtendimentoCardActions({
                 onContatoFeito();
               }}
             >
+              <ActionMenuIcon action="contatoFeito" className="size-3.5" />
               Contato feito
             </button>
             <button
               type="button"
               disabled={disabled}
-              className="block w-full px-3 py-2 text-left text-xs hover:bg-muted"
+              className="flex w-full items-center gap-1 px-3 py-2 text-left text-xs hover:bg-muted"
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -479,6 +456,7 @@ function AtendimentoCardActions({
                 onQualificar();
               }}
             >
+              <ActionMenuIcon action="qualificar" className="size-3.5" />
               Qualificar
             </button>
             {podeTransferir ? (
@@ -492,13 +470,16 @@ function AtendimentoCardActions({
                   onTransferir();
                 }}
               >
-                <UserCog className="size-3.5" />
+                <ActionMenuIcon action="transferir" className="size-3.5" />
                 Transferir
               </button>
             ) : null}
             <button
               type="button"
-              className="flex w-full items-center gap-1 px-3 py-2 text-left text-xs text-[#E63946] hover:bg-muted"
+              className={cn(
+                "flex w-full items-center gap-1 px-3 py-2 text-left text-xs hover:bg-muted",
+                ACTION_MENU_DESTRUCTIVE_CLASS,
+              )}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -506,13 +487,16 @@ function AtendimentoCardActions({
                 onDescartar();
               }}
             >
-              <Trash2 className="size-3.5" />
+              <ActionMenuIcon action="descartar" className="size-3.5" />
               Descartar
             </button>
             {podeExcluir ? (
               <button
                 type="button"
-                className="flex w-full items-center gap-1 px-3 py-2 text-left text-xs text-[#E63946] hover:bg-muted"
+                className={cn(
+                  "flex w-full items-center gap-1 px-3 py-2 text-left text-xs hover:bg-muted",
+                  ACTION_MENU_DESTRUCTIVE_CLASS,
+                )}
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -520,13 +504,13 @@ function AtendimentoCardActions({
                   onExcluir();
                 }}
               >
-                <Trash2 className="size-3.5" />
+                <ActionMenuIcon action="excluir" className="size-3.5" />
                 Excluir atendimento
               </button>
             ) : null}
             <button
               type="button"
-              className="block w-full px-3 py-2 text-left text-xs hover:bg-muted"
+              className="flex w-full items-center gap-1 px-3 py-2 text-left text-xs hover:bg-muted"
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -534,6 +518,7 @@ function AtendimentoCardActions({
                 router.push(`/dashboard/atendimentos/${lead.id}`);
               }}
             >
+              <ActionMenuIcon action="abrirAtendimento" className="size-3.5" />
               Abrir atendimento
             </button>
           </div>

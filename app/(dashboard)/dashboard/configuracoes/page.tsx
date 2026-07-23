@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { ConfiguracoesTabs } from "@/components/configuracoes/ConfiguracoesTabs";
 import { getAgenteConfig } from "@/lib/actions/agente-config";
+import { getConfigFichaVisita } from "@/lib/actions/ficha-visita";
 import { getAtendimentoConfig, getMotivosDescarte } from "@/lib/actions/atendimentos";
 import { getDashboardConfig } from "@/lib/actions/dashboard-config";
 import {
@@ -13,7 +14,7 @@ import {
   getStatusImovelConfig,
   getTiposImovelCustom,
 } from "@/lib/actions/configuracoes";
-import { getCorretorForUser } from "@/lib/supabase/get-corretor";
+import { getEquipeAccessContext } from "@/lib/auth/equipe-access";
 import { createClient } from "@/lib/supabase/server";
 import type { Assinatura, PlanoAssinatura } from "@/types";
 
@@ -32,11 +33,13 @@ export default async function ConfiguracoesPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const corretor = await getCorretorForUser();
+  const ctx = await getEquipeAccessContext();
 
-  if (!corretor) {
+  if (!ctx) {
     redirect("/login");
   }
+
+  const { corretor, canManageEquipe } = ctx;
 
   const params = await searchParams;
   const initialTab = typeof params.aba === "string" ? params.aba : "perfil";
@@ -49,7 +52,7 @@ export default async function ConfiguracoesPage({
 
   const plano = obterPlanoAtivo(assinaturas ?? undefined);
   const agenteConfigResult = await getAgenteConfig(corretor.id);
-  const [tiposImovel, midiasOrigem, perfisEquipe, statusImovel, marcaDaguaConfig, dashboardConfig, atendimentoConfig, motivosDescarte, motivosDesativacao] =
+  const [tiposImovel, midiasOrigem, perfisEquipe, statusImovel, marcaDaguaConfig, dashboardConfig, atendimentoConfig, fichaVisitaConfig, motivosDescarte, motivosDesativacao] =
     await Promise.all([
       getTiposImovelCustom(),
       getMidiasOrigem(),
@@ -58,6 +61,7 @@ export default async function ConfiguracoesPage({
       getMarcaDaguaConfig(),
       getDashboardConfig(),
       getAtendimentoConfig(),
+      getConfigFichaVisita(),
       getMotivosDescarte(),
       getMotivosDesativacao(),
     ]);
@@ -86,9 +90,11 @@ export default async function ConfiguracoesPage({
           marcaDaguaConfig={marcaDaguaConfig}
           dashboardConfig={dashboardConfig}
           atendimentoConfig={atendimentoConfig}
+          fichaVisitaConfig={fichaVisitaConfig}
           motivosDescarte={motivosDescarte}
           motivosDesativacao={motivosDesativacao}
           initialTab={initialTab}
+          canManageEquipe={canManageEquipe}
         />
     </div>
   );

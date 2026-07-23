@@ -29,6 +29,15 @@ import {
   Plus,
 } from "lucide-react";
 
+import {
+  formatDateTimeBrasilia,
+  formatLocalDateTimeInput,
+  formatLocalTimeInput,
+  isSameDayBrasilia,
+} from "@/lib/dates/format";
+
+import { AgendarAtividadeForm } from "@/components/agenda/AgendarAtividadeForm";
+import { ActionMenuIcon, ActionMenuItem } from "@/components/ui/action-menu-item";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -57,7 +66,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import {
   cancelarAgendaItem,
-  createAgendaItem,
   editarAgendaItem,
   marcarAgendaRealizado,
 } from "@/lib/actions/agenda";
@@ -150,11 +158,6 @@ export function AgendaPageClient({ initialItems }: AgendaPageClientProps) {
   const [customFim, setCustomFim] = useState("");
 
   const [novaOpen, setNovaOpen] = useState(false);
-  const [titulo, setTitulo] = useState("");
-  const [tipo, setTipo] = useState<TipoAgenda>("visita");
-  const [dataAtividade, setDataAtividade] = useState("");
-  const [descricao, setDescricao] = useState("");
-  const [lembreteEmail, setLembreteEmail] = useState(false);
 
   const [acaoItem, setAcaoItem] = useState<Agenda | null>(null);
   const [acaoTipo, setAcaoTipo] = useState<"realizar" | "cancelar" | "editar" | null>(null);
@@ -216,32 +219,6 @@ export function AgendaPageClient({ initialItems }: AgendaPageClientProps) {
     return eachDayOfInterval({ start: inicio, end: fim });
   }, [mesAtual]);
 
-  function criarAtividade() {
-    if (!titulo.trim() || !dataAtividade) {
-      toast({ variant: "destructive", title: "Preencha título e data." });
-      return;
-    }
-    startTransition(async () => {
-      const result = await createAgendaItem({
-        titulo,
-        tipo,
-        data_atividade: dataAtividade,
-        descricao,
-        lembrete_email: lembreteEmail,
-      });
-      if (result.error) {
-        toast({ variant: "destructive", title: "Erro", description: result.error });
-        return;
-      }
-      toast({ title: result.message });
-      setNovaOpen(false);
-      setTitulo("");
-      setDescricao("");
-      setDataAtividade("");
-      router.refresh();
-    });
-  }
-
   function abrirAcao(item: Agenda, tipoAcao: "realizar" | "cancelar" | "editar") {
     setAcaoItem(item);
     setAcaoTipo(tipoAcao);
@@ -251,7 +228,7 @@ export function AgendaPageClient({ initialItems }: AgendaPageClientProps) {
     setEditTitulo(item.titulo);
     setEditDescricao(item.descricao ?? "");
     setEditTipo(item.tipo);
-    setEditData(format(new Date(item.data_atividade), "yyyy-MM-dd'T'HH:mm"));
+    setEditData(formatLocalDateTimeInput(item.data_atividade));
   }
 
   function fecharAcao() {
@@ -306,55 +283,14 @@ export function AgendaPageClient({ initialItems }: AgendaPageClientProps) {
             <DialogHeader>
               <DialogTitle>Nova atividade</DialogTitle>
             </DialogHeader>
-            <div className="space-y-3">
-              <div>
-                <Label htmlFor="ag_titulo">Título</Label>
-                <Input id="ag_titulo" value={titulo} onChange={(e) => setTitulo(e.target.value)} />
-              </div>
-              <div>
-                <Label>Tipo</Label>
-                <Select value={tipo} onValueChange={(v) => setTipo(v as TipoAgenda)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TIPOS_COMPROMISSO.map((t) => (
-                      <SelectItem key={t.slug} value={t.slug}>
-                        {t.icone} {t.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="ag_data">Data e hora</Label>
-                <Input
-                  id="ag_data"
-                  type="datetime-local"
-                  value={dataAtividade}
-                  onChange={(e) => setDataAtividade(e.target.value)}
-                />
-              </div>
-              <div>
-                <Label htmlFor="ag_desc">Descrição</Label>
-                <Textarea
-                  id="ag_desc"
-                  value={descricao}
-                  onChange={(e) => setDescricao(e.target.value)}
-                />
-              </div>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={lembreteEmail}
-                  onChange={(e) => setLembreteEmail(e.target.checked)}
-                />
-                Enviar lembrete por e-mail
-              </label>
-              <Button onClick={criarAtividade} disabled={isPending} className="w-full">
-                {isPending ? <Loader2 className="size-4 animate-spin" /> : "Salvar"}
-              </Button>
-            </div>
+            <AgendarAtividadeForm
+              submitLabel="Salvar"
+              onSuccess={() => {
+                setNovaOpen(false);
+                router.refresh();
+              }}
+              className="border-0 bg-transparent p-0 shadow-none"
+            />
           </DialogContent>
         </Dialog>
       </div>
@@ -529,7 +465,7 @@ export function AgendaPageClient({ initialItems }: AgendaPageClientProps) {
             ))}
             {diasDoMes.map((dia) => {
               const atividades = itensFiltrados.filter((item) =>
-                isSameDay(new Date(item.data_atividade), dia),
+                isSameDayBrasilia(item.data_atividade, dia),
               );
               const isToday = isSameDay(dia, hoje);
 
@@ -555,7 +491,7 @@ export function AgendaPageClient({ initialItems }: AgendaPageClientProps) {
                       const conteudo = (
                         <div className="truncate rounded bg-muted/60 px-1 py-0.5 text-[10px] leading-tight">
                           <span className="mr-0.5">{tipoInfo.icone}</span>
-                          {format(new Date(item.data_atividade), "HH:mm")}
+                          {formatLocalTimeInput(item.data_atividade)}
                           {item.lead?.nome ? ` ${item.lead.nome.split(" ")[0]}` : ""}
                         </div>
                       );
@@ -693,9 +629,7 @@ function AgendaListCard({
   onAcao: (item: Agenda, tipo: "realizar" | "cancelar" | "editar") => void;
 }) {
   const tipoInfo = getTipoCompromisso(item.tipo);
-  const dataFmt = format(new Date(item.data_atividade), "dd/MM/yyyy 'às' HH:mm", {
-    locale: ptBR,
-  });
+  const dataFmt = formatDateTimeBrasilia(item.data_atividade).replace(", ", " às ");
   const subtitulo = [
     item.lead?.nome,
     item.imovel?.titulo ?? item.imovel?.codigo,
@@ -737,24 +671,25 @@ function AgendaListCard({
             {item.lead_id ? (
               <DropdownMenuItem asChild>
                 <Link href={`/dashboard/atendimentos/${item.lead_id}`}>
+                  <ActionMenuIcon action="irParaAtendimento" />
                   Ir para atendimento
                 </Link>
               </DropdownMenuItem>
             ) : null}
             {item.status === "pendente" ? (
               <>
-                <DropdownMenuItem onClick={() => onAcao(item, "realizar")}>
+                <ActionMenuItem onClick={() => onAcao(item, "realizar")} action="marcarRealizado">
                   Marcar realizado
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onAcao(item, "cancelar")}>
+                </ActionMenuItem>
+                <ActionMenuItem onClick={() => onAcao(item, "cancelar")} action="cancelar">
                   Cancelar
-                </DropdownMenuItem>
+                </ActionMenuItem>
               </>
             ) : null}
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => onAcao(item, "editar")}>
+            <ActionMenuItem onClick={() => onAcao(item, "editar")} action="editar">
               Editar
-            </DropdownMenuItem>
+            </ActionMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

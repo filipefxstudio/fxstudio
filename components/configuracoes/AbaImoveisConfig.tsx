@@ -6,7 +6,7 @@ import { AbaMotivosDesativacao } from "@/components/configuracoes/AbaMotivosDesa
 import { AbaStatusImovel } from "@/components/configuracoes/AbaStatusImovel";
 import { AbaTiposImovel } from "@/components/configuracoes/AbaTiposImovel";
 import type {
-  AtendimentoConfig,
+  ConfigFichaVisita,
   MarcaDaguaConfig,
   MotivoDesativacao,
   StatusImovel,
@@ -17,7 +17,7 @@ interface AbaImoveisConfigProps {
   tiposImovel: TipoImovelCustom[];
   statusImovel: StatusImovel[];
   marcaDaguaConfig: MarcaDaguaConfig | null;
-  atendimentoConfig: AtendimentoConfig | null;
+  fichaVisitaConfig: ConfigFichaVisita | null;
   motivosDesativacao: MotivoDesativacao[];
 }
 
@@ -25,7 +25,7 @@ export function AbaImoveisConfig({
   tiposImovel,
   statusImovel,
   marcaDaguaConfig,
-  atendimentoConfig,
+  fichaVisitaConfig,
   motivosDesativacao,
 }: AbaImoveisConfigProps) {
   return (
@@ -34,7 +34,7 @@ export function AbaImoveisConfig({
       <AbaStatusImovel statusList={statusImovel} />
       <AbaMotivosDesativacao initialMotivos={motivosDesativacao} />
       <AbaMarcaDagua initialConfig={marcaDaguaConfig} />
-      <AbaFichaVisita initialConfig={atendimentoConfig} />
+      <AbaFichaVisita initialConfig={fichaVisitaConfig} />
     </div>
   );
 }

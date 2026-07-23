@@ -9,11 +9,21 @@ import {
   MOTIVOS_DESATIVACAO,
   STORAGE_BUCKET_MARCA_DAGUA,
 } from "@/lib/constants/imoveis";
+import {
+  dedupePerfisEquipe,
+  getEquipeAccessContext,
+  isActiveAdminPerfil,
+  isPerfilConvitePendente,
+  isPrincipalPerfil,
+  isValidEmail,
+  perfilTemAuthVinculado,
+  requireEquipeManager,
+} from "@/lib/auth/equipe-access";
 import { enviarConviteEquipe } from "@/lib/email/invite";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import type { MarcaDaguaConfig, MidiaOrigem, MotivoDesativacao, PapelUsuario, Perfil, StatusImovel, TipoImovelCustom } from "@/types";
+import type { Corretor, MarcaDaguaConfig, MidiaOrigem, MotivoDesativacao, PapelUsuario, Perfil, StatusImovel, TipoImovelCustom } from "@/types";
 
 export type ConfigActionResult = {
   success?: boolean;
@@ -111,14 +121,34 @@ export async function getMidiasOrigem(): Promise<MidiaOrigem[]> {
 }
 
 export async function getPerfisEquipe(): Promise<Perfil[]> {
-  const corretor = await getCorretorForUser();
+  const ctx = await getEquipeAccessContext();
+  const corretor = ctx?.corretor ?? (await getCorretorForUser());
 
   if (!corretor) {
     return [];
   }
 
-  const supabase = await createClient();
-  const { data, error } = await supabase
+  let admin;
+
+  try {
+    admin = createServiceRoleClient();
+  } catch {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("perfis")
+      .select("*")
+      .eq("corretor_id", corretor.id)
+      .order("criado_em");
+
+    if (error) {
+      console.error("[getPerfisEquipe] failed", error);
+      return [];
+    }
+
+    return dedupePerfisEquipe((data ?? []) as Perfil[], corretor.user_id);
+  }
+
+  const { data, error } = await admin
     .from("perfis")
     .select("*")
     .eq("corretor_id", corretor.id)
@@ -129,7 +159,97 @@ export async function getPerfisEquipe(): Promise<Perfil[]> {
     return [];
   }
 
-  return (data ?? []) as Perfil[];
+  return dedupePerfisEquipe((data ?? []) as Perfil[], corretor.user_id);
+}
+
+async function countOtherActiveAdmins(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  corretorId: string,
+  corretor: Pick<Corretor, "user_id" | "email">,
+  excludePerfilId: string,
+): Promise<number> {
+  const { data, error } = await admin
+    .from("perfis")
+    .select("id, papel, user_id, email, ativo")
+    .eq("corretor_id", corretorId)
+    .eq("ativo", true)
+    .neq("id", excludePerfilId);
+
+  if (error) {
+    console.error("[countOtherActiveAdmins] failed", error);
+    return 0;
+  }
+
+  return (data ?? []).filter((row) =>
+    isActiveAdminPerfil(row as Pick<Perfil, "ativo" | "papel" | "user_id" | "email">, corretor),
+  ).length;
+}
+
+async function emailJaUsadoNoTenant(
+  corretorId: string,
+  email: string,
+  ignorePerfilId?: string,
+): Promise<boolean> {
+  const admin = createServiceRoleClient();
+  let query = admin
+    .from("perfis")
+    .select("id")
+    .eq("corretor_id", corretorId)
+    .ilike("email", email);
+
+  if (ignorePerfilId) {
+    query = query.neq("id", ignorePerfilId);
+  }
+
+  const { data } = await query.limit(1);
+  return (data?.length ?? 0) > 0;
+}
+
+async function atualizarEmailLoginPerfil(
+  perfil: Perfil,
+  corretorId: string,
+  corretor: Pick<Corretor, "user_id" | "email">,
+  novoEmail: string,
+): Promise<ConfigActionResult> {
+  const admin = createServiceRoleClient();
+
+  if (await emailJaUsadoNoTenant(corretorId, novoEmail, perfil.id)) {
+    return { error: "Este e-mail já está em uso na equipe." };
+  }
+
+  if (!perfilTemAuthVinculado(perfil, corretor)) {
+    return {
+      success: true,
+      message:
+        "E-mail do convite atualizado. Quando o usuário criar a conta, use este endereço para entrar.",
+    };
+  }
+
+  const authUserId = isPrincipalPerfil(perfil, corretor)
+    ? corretor.user_id
+    : perfil.user_id;
+
+  const { error: authError } = await admin.auth.admin.updateUserById(authUserId, {
+    email: novoEmail,
+    email_confirm: true,
+  });
+
+  if (authError) {
+    console.error("[atualizarEmailLoginPerfil] auth update failed", authError);
+    const msg = authError.message.toLowerCase();
+
+    if (msg.includes("already") || msg.includes("registered") || msg.includes("exists")) {
+      return { error: "Este e-mail já está cadastrado em outra conta." };
+    }
+
+    return { error: "Não foi possível atualizar o e-mail de login." };
+  }
+
+  if (isPrincipalPerfil(perfil, corretor)) {
+    await admin.from("corretores").update({ email: novoEmail }).eq("id", corretorId);
+  }
+
+  return { success: true };
 }
 
 export async function addTipoImovelCustom(nome: string): Promise<ConfigActionResult> {
@@ -247,6 +367,58 @@ export async function toggleMidiaOrigem(
   return { success: true };
 }
 
+export async function editMidiaOrigem(
+  id: string,
+  nome: string,
+): Promise<ConfigActionResult> {
+  const corretor = await getCorretorForUser();
+
+  if (!corretor) {
+    return { error: "Sessão expirada." };
+  }
+
+  const trimmed = nome.trim();
+  if (!trimmed) {
+    return { error: "Informe o nome da mídia." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("midia_origem")
+    .update({ nome: trimmed })
+    .eq("id", id)
+    .eq("corretor_id", corretor.id);
+
+  if (error) {
+    return { error: "Não foi possível atualizar a mídia." };
+  }
+
+  revalidatePath("/dashboard/configuracoes");
+  return { success: true, message: "Mídia atualizada." };
+}
+
+export async function deleteMidiaOrigem(id: string): Promise<ConfigActionResult> {
+  const corretor = await getCorretorForUser();
+
+  if (!corretor) {
+    return { error: "Sessão expirada." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("midia_origem")
+    .delete()
+    .eq("id", id)
+    .eq("corretor_id", corretor.id);
+
+  if (error) {
+    return { error: "Não foi possível excluir a mídia." };
+  }
+
+  revalidatePath("/dashboard/configuracoes");
+  return { success: true, message: "Mídia excluída." };
+}
+
 export async function reorderMidiasOrigem(
   orderedIds: string[],
 ): Promise<ConfigActionResult> {
@@ -276,12 +448,12 @@ export async function convidarPerfil(data: {
   telefone?: string;
   papel: PapelUsuario;
 }): Promise<ConfigActionResult> {
-  const corretor = await getCorretorForUser();
-
-  if (!corretor) {
-    return { error: "Sessão expirada." };
+  const access = await requireEquipeManager();
+  if ("error" in access) {
+    return { error: access.error };
   }
 
+  const { corretor } = access;
   const perfis = await getPerfisEquipe();
 
   if (perfis.length >= EQUIPE_LIMITE_USUARIOS) {
@@ -289,16 +461,53 @@ export async function convidarPerfil(data: {
   }
 
   const nome = data.nome.trim();
-  const email = data.email.trim();
+  const email = data.email.trim().toLowerCase();
 
   if (!nome || !email) {
     return { error: "Informe nome e e-mail." };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase.from("perfis").insert({
+  if (!isValidEmail(email)) {
+    return { error: "Informe um e-mail válido." };
+  }
+
+  if (await emailJaUsadoNoTenant(corretor.id, email)) {
+    return { error: "Este e-mail já está em uso na equipe." };
+  }
+
+  let admin;
+
+  try {
+    admin = createServiceRoleClient();
+  } catch {
+    return { error: "Operação indisponível. Verifique a configuração do servidor." };
+  }
+
+  const { data: inviteAuth, error: inviteAuthError } = await admin.auth.admin.createUser({
+    email,
+    email_confirm: true,
+    user_metadata: {
+      fxstudio_invite: true,
+      corretor_id: corretor.id,
+    },
+  });
+
+  if (inviteAuthError || !inviteAuth.user) {
+    const msg = inviteAuthError?.message?.toLowerCase() ?? "";
+    console.error("[convidarPerfil] auth user create failed", inviteAuthError);
+
+    if (msg.includes("already") || msg.includes("registered") || msg.includes("exists")) {
+      return { error: "Este e-mail já possui conta no sistema." };
+    }
+
+    return { error: "Não foi possível preparar o convite." };
+  }
+
+  const inviteUserId = inviteAuth.user.id;
+
+  const { error } = await admin.from("perfis").insert({
     corretor_id: corretor.id,
-    user_id: corretor.user_id,
+    user_id: inviteUserId,
     nome,
     email,
     telefone: data.telefone?.trim() || null,
@@ -308,6 +517,7 @@ export async function convidarPerfil(data: {
 
   if (error) {
     console.error("[convidarPerfil] failed", error);
+    await admin.auth.admin.deleteUser(inviteUserId);
     return { error: "Não foi possível registrar o convite." };
   }
 
@@ -355,16 +565,24 @@ export async function togglePerfilAtivo(
   id: string,
   ativo: boolean,
 ): Promise<ConfigActionResult> {
-  const corretor = await getCorretorForUser();
-
-  if (!corretor) {
-    return { error: "Sessão expirada." };
+  const access = await requireEquipeManager();
+  if ("error" in access) {
+    return { error: access.error };
   }
 
-  const supabase = await createClient();
-  const { data: perfil } = await supabase
+  const { corretor } = access;
+
+  let admin;
+
+  try {
+    admin = createServiceRoleClient();
+  } catch {
+    return { error: "Operação indisponível. Verifique a configuração do servidor." };
+  }
+
+  const { data: perfil } = await admin
     .from("perfis")
-    .select("id, user_id")
+    .select("*")
     .eq("id", id)
     .eq("corretor_id", corretor.id)
     .maybeSingle();
@@ -373,11 +591,11 @@ export async function togglePerfilAtivo(
     return { error: "Perfil não encontrado." };
   }
 
-  if (perfil.user_id === corretor.user_id && !ativo) {
+  if (isPrincipalPerfil(perfil as Perfil, corretor) && !ativo) {
     return { error: "O administrador principal não pode ser desativado." };
   }
 
-  const { error } = await supabase
+  const { error } = await admin
     .from("perfis")
     .update({ ativo })
     .eq("id", id)
@@ -395,15 +613,80 @@ export async function editarPerfil(
   id: string,
   data: { nome: string; email: string; papel: PapelUsuario },
 ): Promise<ConfigActionResult> {
-  const corretor = await getCorretorForUser();
-  if (!corretor) return { error: "Sessão expirada." };
+  const access = await requireEquipeManager();
+  if ("error" in access) {
+    return { error: access.error };
+  }
 
+  const { corretor } = access;
   const nome = data.nome.trim();
-  const email = data.email.trim();
-  if (!nome || !email) return { error: "Informe nome e e-mail." };
+  const email = data.email.trim().toLowerCase();
 
-  const supabase = await createClient();
-  const { error } = await supabase
+  if (!nome || !email) return { error: "Informe nome e e-mail." };
+  if (!isValidEmail(email)) return { error: "Informe um e-mail válido." };
+
+  let admin;
+
+  try {
+    admin = createServiceRoleClient();
+  } catch {
+    return { error: "Operação indisponível. Verifique a configuração do servidor." };
+  }
+
+  const { data: perfil, error: fetchError } = await admin
+    .from("perfis")
+    .select("*")
+    .eq("id", id)
+    .eq("corretor_id", corretor.id)
+    .maybeSingle();
+
+  if (fetchError || !perfil) {
+    return { error: "Perfil não encontrado." };
+  }
+
+  const perfilAtual = perfil as Perfil;
+  const principal = isPrincipalPerfil(perfilAtual, corretor);
+
+  if (principal) {
+    data.papel = "admin";
+  }
+
+  if (principal && data.papel !== "admin") {
+    return { error: "O administrador principal deve permanecer com papel Admin." };
+  }
+
+  if (!principal && perfilAtual.papel === "admin" && data.papel !== "admin") {
+    const outrosAdmins = await countOtherActiveAdmins(
+      admin,
+      corretor.id,
+      corretor,
+      id,
+    );
+
+    if (outrosAdmins < 1) {
+      return { error: "A equipe precisa de pelo menos um administrador ativo." };
+    }
+  }
+
+  const emailAlterado = email !== perfilAtual.email.trim().toLowerCase();
+  let emailMessage: string | undefined;
+
+  if (emailAlterado) {
+    const emailResult = await atualizarEmailLoginPerfil(
+      perfilAtual,
+      corretor.id,
+      corretor,
+      email,
+    );
+
+    if (emailResult.error) {
+      return { error: emailResult.error };
+    }
+
+    emailMessage = emailResult.message;
+  }
+
+  const { error } = await admin
     .from("perfis")
     .update({ nome, email, papel: data.papel })
     .eq("id", id)
@@ -412,28 +695,71 @@ export async function editarPerfil(
   if (error) return { error: "Não foi possível atualizar o perfil." };
 
   revalidatePath("/dashboard/configuracoes");
+
+  if (emailAlterado && isPerfilConvitePendente(perfilAtual, corretor)) {
+    return {
+      success: true,
+      message:
+        emailMessage ??
+        "Perfil atualizado. O e-mail de login será usado quando o convidado ativar a conta.",
+    };
+  }
+
+  if (emailAlterado) {
+    return {
+      success: true,
+      message: emailMessage ?? "Perfil e e-mail de login atualizados.",
+    };
+  }
+
   return { success: true, message: "Perfil atualizado." };
 }
 
 export async function excluirPerfil(id: string): Promise<ConfigActionResult> {
-  const corretor = await getCorretorForUser();
-  if (!corretor) return { error: "Sessão expirada." };
+  const access = await requireEquipeManager();
+  if ("error" in access) {
+    return { error: access.error };
+  }
 
-  const supabase = await createClient();
-  const { data: perfil } = await supabase
+  const { corretor } = access;
+
+  let admin;
+
+  try {
+    admin = createServiceRoleClient();
+  } catch {
+    return { error: "Operação indisponível. Verifique a configuração do servidor." };
+  }
+
+  const { data: perfil } = await admin
     .from("perfis")
-    .select("id, user_id")
+    .select("*")
     .eq("id", id)
     .eq("corretor_id", corretor.id)
     .maybeSingle();
 
   if (!perfil) return { error: "Perfil não encontrado." };
 
-  if (perfil.user_id === corretor.user_id) {
+  const perfilAtual = perfil as Perfil;
+
+  if (isPrincipalPerfil(perfilAtual, corretor)) {
     return { error: "O administrador principal não pode ser excluído." };
   }
 
-  const { error } = await supabase
+  if (perfilAtual.papel === "admin" && perfilAtual.ativo) {
+    const outrosAdmins = await countOtherActiveAdmins(
+      admin,
+      corretor.id,
+      corretor,
+      id,
+    );
+
+    if (outrosAdmins < 1) {
+      return { error: "Não é possível excluir o único administrador ativo." };
+    }
+  }
+
+  const { error } = await admin
     .from("perfis")
     .delete()
     .eq("id", id)

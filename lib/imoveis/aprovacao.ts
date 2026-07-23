@@ -9,8 +9,32 @@ export function podeAprovarImovel(perfil: Perfil | null | undefined): boolean {
   return Boolean(perfil?.ativo && isGestorImovel(perfil.papel));
 }
 
-export function podeEnviarParaAprovacao(imovel: Pick<Imovel, "status_aprovacao">): boolean {
-  return imovel.status_aprovacao === "em_cadastro";
+export function podeEnviarParaAprovacao(
+  imovel: Pick<Imovel, "status_aprovacao" | "status">,
+): boolean {
+  if (imovel.status_aprovacao === "em_cadastro") {
+    return true;
+  }
+
+  if (
+    !imovel.status_aprovacao &&
+    (imovel.status === "em_cadastro" || !imovel.status)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/** Exibe o botão "Enviar para aprovação" no formulário (novo ou edição). */
+export function podeMostrarEnviarAprovacaoNoFormulario(
+  imovel: Pick<Imovel, "status_aprovacao" | "status"> | null | undefined,
+): boolean {
+  if (!imovel) {
+    return true;
+  }
+
+  return podeEnviarParaAprovacao(imovel);
 }
 
 export function podeEditarImovelCompleto(
@@ -36,6 +60,20 @@ export function podePublicarImovel(
   }
 
   return imovel.status_aprovacao === "aprovado";
+}
+
+export function podeAlterarStatusImovel(
+  imovel: Pick<Imovel, "status_aprovacao">,
+  perfil: Perfil | null | undefined,
+): boolean {
+  if (podeAprovarImovel(perfil)) {
+    return true;
+  }
+
+  return (
+    imovel.status_aprovacao !== "em_cadastro" &&
+    imovel.status_aprovacao !== "aguardando_aprovacao"
+  );
 }
 
 export function labelStatusAprovacao(status: StatusAprovacaoImovel): string {

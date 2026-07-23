@@ -7,8 +7,8 @@ import { getPerfisEquipe } from "@/lib/actions/configuracoes";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 
 export const metadata: Metadata = {
-  title: "Clientes | FX Studio",
-  description: "Gerencie clientes, leads e proprietários",
+  title: "Pessoas | FX Studio",
+  description: "Gerencie leads e proprietários cadastrados no CRM",
 };
 
 export default async function ClientesPage() {

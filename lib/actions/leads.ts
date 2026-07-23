@@ -3,8 +3,11 @@
 import { revalidatePath } from "next/cache";
 
 import { contemNormalizado } from "@/lib/utils/normalizar";
+import { parseLocalDateTimeInput } from "@/lib/dates/format";
 
-import { ETAPAS_LEAD, isEtapaLead } from "@/lib/constants/leads";
+import { ETAPAS_LEAD, ETAPAS_LEAD_LEGACY, isEtapaLead } from "@/lib/constants/leads";
+import { leadMatchesEtapaFilter } from "@/lib/leads/etapa-order";
+import { isLeadAtivo } from "@/lib/leads/format";
 import { podeAvancarEtapa } from "@/lib/leads/etapa-order";
 import { calcularTempoPrimeiraRespostaIfNeeded } from "@/lib/leads/primeira-resposta";
 import {
@@ -13,13 +16,24 @@ import {
   serializeLeadObservacoes,
   type PerfilFinanceiroLead,
 } from "@/lib/leads/observacoes";
-import { getMidiasOrigem as getMidiasOrigemConfig } from "@/lib/actions/configuracoes";
+import {
+  getMidiasOrigem as getMidiasOrigemConfig,
+} from "@/lib/actions/configuracoes";
+import {
+  verificarDuplicidadeContatoLead,
+  verificarPessoaExistente,
+} from "@/lib/actions/clientes";
+import { erroDuplicidadePessoa } from "@/lib/pessoas/messages";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 import {
   isSchemaMismatchError,
   logPostgrestError,
 } from "@/lib/supabase/postgrest-error";
 import { createClient } from "@/lib/supabase/server";
+import {
+  clampListLimit,
+  clampListOffset,
+} from "@/lib/constants/listings";
 import type {
   EtapaLead,
   Lead,
@@ -46,6 +60,8 @@ export interface LeadsFilterParams {
   sem_interacao_dias?: number;
   finalidade?: "compra" | "locacao";
   ativos_apenas?: boolean;
+  limit?: number;
+  offset?: number;
 }
 
 export interface CreateLeadInput {
@@ -129,20 +145,15 @@ function applyClientSideFilters(leads: Lead[], filters?: LeadsFilterParams): Lea
   }
 
   return leads.filter((lead) => {
-    if (filters.ativos_apenas !== false) {
-      if (lead.situacao === "descartado" || lead.situacao === "negocio_fechado") {
-        return false;
-      }
-      if (lead.etapa === "fechado" || lead.etapa === "perdido") {
-        return false;
-      }
+    if (filters.ativos_apenas !== false && !isLeadAtivo(lead)) {
+      return false;
     }
 
     if (filters.temperatura && lead.temperatura !== filters.temperatura) {
       return false;
     }
 
-    if (filters.etapa && lead.etapa !== filters.etapa) {
+    if (filters.etapa && !leadMatchesEtapaFilter(lead, filters.etapa)) {
       return false;
     }
 
@@ -273,13 +284,17 @@ async function fetchLeadsRows(
   corretorId: string,
   filters?: LeadsFilterParams,
 ): Promise<Lead[]> {
+  const limit = clampListLimit(filters?.limit);
+  const offset = clampListOffset(filters?.offset);
+
   for (let tier = 0; tier < LEADS_LIST_SELECT_TIERS.length; tier += 1) {
     const { data, error } = await applyLeadsQueryFilters(
       supabase
         .from("leads")
         .select(LEADS_LIST_SELECT_TIERS[tier] as "*")
         .eq("corretor_id", corretorId)
-        .order("criado_em", { ascending: false }),
+        .order("criado_em", { ascending: false })
+        .range(offset, offset + limit - 1),
       filters,
     );
 
@@ -384,13 +399,24 @@ export async function createLead(input: CreateLeadInput): Promise<LeadActionResu
     return { error: "Informe o telefone do lead." };
   }
 
+  const supabase = await createClient();
+
+  const duplicidadeLead = await verificarDuplicidadeContatoLead(telefone, input.email);
+  if (duplicidadeLead.bloqueado) {
+    return { error: duplicidadeLead.mensagem ?? "Essa pessoa já está cadastrada." };
+  }
+
+  const duplicidade = await verificarPessoaExistente(corretor.id, telefone, input.email);
+  if (duplicidade.existe && duplicidade.cliente && duplicidade.motivo) {
+    return { error: erroDuplicidadePessoa(duplicidade.motivo, duplicidade.cliente.nome) };
+  }
+
   const observacoes = input.perfil_id
     ? mergeLeadObservacoesMeta(input.observacoes ?? null, {
         perfil_id: input.perfil_id,
       })
     : input.observacoes?.trim() || null;
 
-  const supabase = await createClient();
   const { data, error } = await supabase
     .from("leads")
     .insert({
@@ -437,7 +463,11 @@ export async function updateLead(
     return { error: "Sessão expirada. Faça login novamente." };
   }
 
-  if (input.etapa && (!isEtapaLead(input.etapa) || !ETAPAS_LEAD.includes(input.etapa))) {
+  if (
+    input.etapa &&
+    (!isEtapaLead(input.etapa) ||
+      (!ETAPAS_LEAD.includes(input.etapa) && !ETAPAS_LEAD_LEGACY.includes(input.etapa)))
+  ) {
     return { error: "Etapa inválida." };
   }
 
@@ -451,6 +481,29 @@ export async function updateLead(
 
   if (buscaError || !existente) {
     return { error: "Lead não encontrado." };
+  }
+
+  if (input.telefone !== undefined || input.email !== undefined) {
+    const telefoneCheck = input.telefone ?? undefined;
+    const emailCheck = input.email ?? undefined;
+
+    const duplicidadeLead = await verificarDuplicidadeContatoLead(
+      telefoneCheck,
+      emailCheck,
+      leadId,
+    );
+    if (duplicidadeLead.bloqueado) {
+      return { error: duplicidadeLead.mensagem ?? "Contato já cadastrado." };
+    }
+
+    const duplicidade = await verificarPessoaExistente(
+      corretor.id,
+      telefoneCheck,
+      emailCheck,
+    );
+    if (duplicidade.existe && duplicidade.cliente && duplicidade.motivo) {
+      return { error: erroDuplicidadePessoa(duplicidade.motivo, duplicidade.cliente.nome) };
+    }
   }
 
   const updatePayload: Record<string, unknown> = {
@@ -574,7 +627,9 @@ export async function addInteracao(
     return { error: "Lead não encontrado." };
   }
 
-  const criadoEm = input.data ? new Date(input.data).toISOString() : new Date().toISOString();
+  const criadoEm = input.data?.trim()
+    ? parseLocalDateTimeInput(input.data)
+    : new Date().toISOString();
 
   const { error } = await supabase.from("lead_interacoes").insert({
     lead_id: leadId,
@@ -786,17 +841,11 @@ export async function getPerfisForLeads() {
     return [];
   }
 
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("perfis")
-    .select("id, nome, ativo")
-    .eq("corretor_id", corretor.id)
-    .eq("ativo", true)
-    .order("nome");
+  const { getPerfisEquipe } = await import("@/lib/actions/configuracoes");
+  const perfis = await getPerfisEquipe();
 
-  if (error) {
-    return [];
-  }
-
-  return data ?? [];
+  return perfis
+    .filter((p) => p.ativo)
+    .map((p) => ({ id: p.id, nome: p.nome, ativo: p.ativo }))
+    .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
 }

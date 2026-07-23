@@ -8,17 +8,32 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { saveAtendimentoConfig } from "@/lib/actions/atendimentos";
-import { DEFAULT_FICHA_VISITA_TEXTO } from "@/lib/constants/atendimentos";
-import type { AtendimentoConfig } from "@/types";
+import {
+  restoreDefaultFichaVisita,
+  saveConfigFichaVisita,
+} from "@/lib/actions/ficha-visita";
+import {
+  DEFAULT_FICHA_VISITA_CLAUSULA,
+  DEFAULT_PERCENTUAL_COMISSAO,
+} from "@/lib/ficha-visita/constants";
+import { formatPercentual } from "@/lib/ficha-visita/utils";
+import type { ConfigFichaVisita } from "@/types";
 
 interface AbaFichaVisitaProps {
-  initialConfig: AtendimentoConfig | null;
+  initialConfig: ConfigFichaVisita | null;
+}
+
+function getInitialClausula(config: ConfigFichaVisita | null): string {
+  if (!config || config.usa_texto_padrao) {
+    return DEFAULT_FICHA_VISITA_CLAUSULA;
+  }
+  return config.texto_clausula?.trim() || DEFAULT_FICHA_VISITA_CLAUSULA;
 }
 
 export function AbaFichaVisita({ initialConfig }: AbaFichaVisitaProps) {
-  const [fichaTexto, setFichaTexto] = useState(
-    initialConfig?.ficha_visita_texto ?? DEFAULT_FICHA_VISITA_TEXTO,
+  const [clausula, setClausula] = useState(getInitialClausula(initialConfig));
+  const [percentual, setPercentual] = useState(
+    initialConfig?.percentual_comissao ?? DEFAULT_PERCENTUAL_COMISSAO,
   );
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -30,12 +45,31 @@ export function AbaFichaVisita({ initialConfig }: AbaFichaVisitaProps) {
     setError(null);
 
     startTransition(async () => {
-      const result = await saveAtendimentoConfig({ ficha_visita_texto: fichaTexto });
+      const result = await saveConfigFichaVisita({
+        texto_clausula: clausula,
+        percentual_comissao: percentual,
+      });
       if (result.error) {
         setError(result.error);
         return;
       }
-      setFeedback(result.message ?? "Ficha salva.");
+      setFeedback(result.message ?? "Alterações salvas.");
+    });
+  }
+
+  function handleRestore() {
+    setFeedback(null);
+    setError(null);
+
+    startTransition(async () => {
+      const result = await restoreDefaultFichaVisita();
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setClausula(DEFAULT_FICHA_VISITA_CLAUSULA);
+      setPercentual(DEFAULT_PERCENTUAL_COMISSAO);
+      setFeedback(result.message ?? "Ficha padrão restaurada.");
     });
   }
 
@@ -43,28 +77,49 @@ export function AbaFichaVisita({ initialConfig }: AbaFichaVisitaProps) {
     <Card>
       <CardHeader>
         <CardTitle>Ficha de visita</CardTitle>
-        <CardDescription>Template usado ao gerar fichas de visita no CRM.</CardDescription>
+        <CardDescription>
+          Texto da cláusula e percentual de comissão usados ao gerar a ficha final no CRM.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSave} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="ficha">Texto da ficha</Label>
+            <Label htmlFor="ficha-clausula">Texto da cláusula</Label>
             <Textarea
-              id="ficha"
-              rows={10}
-              value={fichaTexto}
-              onChange={(e) => setFichaTexto(e.target.value)}
+              id="ficha-clausula"
+              rows={12}
+              value={clausula}
+              onChange={(e) => setClausula(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              Variáveis: {"{{nome_corretor}}"}, {"{{nome_lead}}"}, {"{{cidade_imovel}}"},
-              {" {{dia}}"}, {"{{mes}}"}, {"{{ano}}"}, {"{{imoveis_lista}}"}, {"{{observacoes}}"}
+              Variáveis: {"{{imobiliaria}}"}, {"{{percentual}}"}, {"{{corretor}}"}
+            </p>
+          </div>
+          <div className="max-w-xs space-y-2">
+            <Label htmlFor="ficha-percentual">Percentual de comissão (%)</Label>
+            <Input
+              id="ficha-percentual"
+              type="number"
+              min={0}
+              max={100}
+              step={0.01}
+              value={percentual}
+              onChange={(e) => setPercentual(Number(e.target.value))}
+            />
+            <p className="text-xs text-muted-foreground">
+              Valor atual no texto padrão: {formatPercentual(percentual)}%
             </p>
           </div>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           {feedback ? <p className="text-sm text-secondary">{feedback}</p> : null}
-          <Button type="submit" disabled={isPending}>
-            {isPending ? <Loader2 className="size-4 animate-spin" /> : "Salvar ficha"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" disabled={isPending}>
+              {isPending ? <Loader2 className="size-4 animate-spin" /> : "Salvar alterações"}
+            </Button>
+            <Button type="button" variant="outline" disabled={isPending} onClick={handleRestore}>
+              Restaurar ficha padrão
+            </Button>
+          </div>
         </form>
       </CardContent>
     </Card>

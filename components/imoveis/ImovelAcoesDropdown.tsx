@@ -4,35 +4,38 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import {
-  Ban,
-  Check,
   ChevronDown,
-  ChevronRight,
-  Eye,
   MoreVertical,
-  Pencil,
-  Share2,
 } from "lucide-react";
+
+import { ActionMenuIcon } from "@/components/ui/action-menu-item";
+import {
+  ACTION_MENU_DESTRUCTIVE_CLASS,
+} from "@/lib/ui/action-menu-icons";
 
 import {
   ImovelAlterarStatusModal,
   ImovelDesativarModal,
 } from "@/components/imoveis/ImovelStatusModals";
 import { toast } from "@/hooks/use-toast";
-import { validarAtualizacao } from "@/lib/actions/imoveis";
+import { aprovarImovel, reprovarImovel, validarAtualizacao } from "@/lib/actions/imoveis";
 import { STATUS_IMOVEL_SISTEMA } from "@/lib/constants/imoveis";
+import { podeAprovarImovel, podeAlterarStatusImovel } from "@/lib/imoveis/aprovacao";
 import { getPublicImovelShareUrlClient } from "@/lib/imoveis/share-url";
 import { cn } from "@/lib/utils";
-import type { Imovel, StatusImovel } from "@/types";
+import type { Imovel, Perfil, StatusImovel } from "@/types";
 
 interface ImovelAcoesDropdownProps {
   imovel: Imovel;
   corretorSlug: string;
   statusList: StatusImovel[];
+  perfil?: Perfil | null;
   variant?: "card" | "header";
   className?: string;
   onStatusChange?: (statusId: string) => void;
   onValidarAtualizacao?: (data: string) => void;
+  onAprovar?: () => void;
+  onReprovar?: () => void;
 }
 
 interface MenuPosition {
@@ -48,10 +51,13 @@ export function ImovelAcoesDropdown({
   imovel,
   corretorSlug,
   statusList,
+  perfil = null,
   variant = "card",
   className,
   onStatusChange,
   onValidarAtualizacao,
+  onAprovar,
+  onReprovar,
 }: ImovelAcoesDropdownProps) {
   const router = useRouter();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -67,6 +73,9 @@ export function ImovelAcoesDropdown({
   const manualStatusList = statusList.filter(
     (status) => !(STATUS_IMOVEL_SISTEMA as readonly string[]).includes(status.nome),
   );
+  const canChangeStatus = podeAlterarStatusImovel(imovel, perfil);
+  const canApprove =
+    podeAprovarImovel(perfil) && imovel.status_aprovacao === "aguardando_aprovacao";
 
   const updateMenuPosition = useCallback(() => {
     const trigger = triggerRef.current;
@@ -185,6 +194,42 @@ export function ImovelAcoesDropdown({
     });
   }
 
+  function handleAprovar(event: React.MouseEvent) {
+    stopCardNav(event);
+    closeMenu();
+
+    startTransition(async () => {
+      const result = await aprovarImovel(imovel.id);
+
+      if (result.error) {
+        toast({ variant: "destructive", title: "Erro", description: result.error });
+        return;
+      }
+
+      toast({ title: "Imóvel aprovado." });
+      onAprovar?.();
+      router.refresh();
+    });
+  }
+
+  function handleReprovar(event: React.MouseEvent) {
+    stopCardNav(event);
+    closeMenu();
+
+    startTransition(async () => {
+      const result = await reprovarImovel(imovel.id);
+
+      if (result.error) {
+        toast({ variant: "destructive", title: "Erro", description: result.error });
+        return;
+      }
+
+      toast({ title: "Imóvel reprovado. Retornou para cadastro." });
+      onReprovar?.();
+      router.refresh();
+    });
+  }
+
   function handleEdit(event: React.MouseEvent) {
     stopCardNav(event);
     closeMenu();
@@ -224,7 +269,7 @@ export function ImovelAcoesDropdown({
           className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
           onClick={handleVerDetalhes}
         >
-          <Eye className="size-4" />
+          <ActionMenuIcon action="verDetalhes" />
           Ver detalhes
         </button>
       ) : null}
@@ -234,7 +279,7 @@ export function ImovelAcoesDropdown({
         className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
         onClick={handleEdit}
       >
-        <Pencil className="size-4" />
+        <ActionMenuIcon action="editar" />
         {variant === "header" ? "Editar imóvel" : "Editar"}
       </button>
 
@@ -243,47 +288,74 @@ export function ImovelAcoesDropdown({
         className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
         onClick={handleShare}
       >
-        <Share2 className="size-4" />
+        <ActionMenuIcon action="compartilhar" />
         Compartilhar
       </button>
 
       <div className="relative">
-        <button
-          type="button"
-          disabled={isPending}
-          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
-          onClick={(event) => {
-            stopCardNav(event);
-            setStatusSubmenuOpen((open) => !open);
-          }}
-        >
-          <span className="flex items-center gap-2">
-            <ChevronRight className="size-4" />
-            Alterar status
-          </span>
-          <ChevronDown className="size-3.5 opacity-60" />
-        </button>
+        {canChangeStatus ? (
+          <>
+            <button
+              type="button"
+              disabled={isPending}
+              className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
+              onClick={(event) => {
+                stopCardNav(event);
+                setStatusSubmenuOpen((open) => !open);
+              }}
+            >
+              <span className="flex items-center gap-2">
+                <ActionMenuIcon action="alterarStatus" />
+                Alterar status
+              </span>
+              <ChevronDown className="size-3.5 opacity-60" />
+            </button>
 
-        {statusSubmenuOpen ? (
-          <div className="border-t border-border py-1">
-            {manualStatusList.map((status) => (
-              <button
-                key={status.id}
-                type="button"
-                disabled={isPending || imovel.status_imovel_id === status.id}
-                className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm hover:bg-muted disabled:opacity-50"
-                onClick={(event) => handleStatusPick(status.id, event)}
-              >
-                <span
-                  className="size-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: status.cor }}
-                />
-                {status.nome}
-              </button>
-            ))}
-          </div>
+            {statusSubmenuOpen ? (
+              <div className="border-t border-border py-1">
+                {manualStatusList.map((status) => (
+                  <button
+                    key={status.id}
+                    type="button"
+                    disabled={isPending || imovel.status_imovel_id === status.id}
+                    className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm hover:bg-muted disabled:opacity-50"
+                    onClick={(event) => handleStatusPick(status.id, event)}
+                  >
+                    <span
+                      className="size-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: status.cor }}
+                    />
+                    {status.nome}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </>
         ) : null}
       </div>
+
+      {canApprove ? (
+        <>
+          <button
+            type="button"
+            disabled={isPending}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-primary hover:bg-muted"
+            onClick={handleAprovar}
+          >
+            <ActionMenuIcon action="aprovar" />
+            Aprovar
+          </button>
+          <button
+            type="button"
+            disabled={isPending}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
+            onClick={handleReprovar}
+          >
+            <ActionMenuIcon action="reprovar" />
+            Reprovar
+          </button>
+        </>
+      ) : null}
 
       {variant === "header" ? (
         <button
@@ -292,17 +364,20 @@ export function ImovelAcoesDropdown({
           className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
           onClick={handleValidar}
         >
-          <Check className="size-4" />
+          <ActionMenuIcon action="validarAtualizacao" />
           Validar atualização
         </button>
       ) : null}
 
       <button
         type="button"
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive hover:bg-muted"
+        className={cn(
+          "flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted",
+          ACTION_MENU_DESTRUCTIVE_CLASS,
+        )}
         onClick={handleDesativar}
       >
-        <Ban className="size-4" />
+        <ActionMenuIcon action="desativar" />
         Desativar
       </button>
     </div>

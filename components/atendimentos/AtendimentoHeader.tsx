@@ -1,34 +1,34 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import {
   ChevronDown,
   MessageCircle,
   MoreVertical,
   Phone,
-  Trash2,
-  UserCheck,
-  UserCog,
 } from "lucide-react";
+
+import { ActionMenuItem } from "@/components/ui/action-menu-item";
 
 import { AtendimentoModals } from "@/components/atendimentos/AtendimentoModals";
 import { SituacaoBadge } from "@/components/atendimentos/SituacaoBadge";
 import { TemperaturaBadge } from "@/components/leads/TemperaturaBadge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ETAPA_LEAD_LABELS } from "@/lib/constants/leads";
 import {
   buildTelLink,
   buildWhatsAppLink,
+  etapaParaSelectAtendimento,
+  formatOrigemDisplay,
   formatTelefoneLead,
   formatTempoPrimeiraResposta,
+  isLeadQualificado,
 } from "@/lib/leads/format";
-import {
-  marcarContatoFeito,
-  qualificarLead,
-} from "@/lib/actions/atendimentos";
-import { toast } from "@/hooks/use-toast";
 import type { Lead, MotivoDescarte } from "@/types";
 
 interface AtendimentoHeaderProps {
@@ -44,27 +44,16 @@ export function AtendimentoHeader({
   motivos,
   podeTransferir,
 }: AtendimentoHeaderProps) {
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [editarOpen, setEditarOpen] = useState(false);
   const [descartarOpen, setDescartarOpen] = useState(false);
   const [transferirOpen, setTransferirOpen] = useState(false);
-
   const nome = lead.nome?.trim() || "Atendimento sem nome";
   const telLink = buildTelLink(lead.telefone);
   const waLink = buildWhatsAppLink(lead.telefone);
   const codigo = lead.codigo_atendimento;
-
-  function runAction(action: () => Promise<{ error?: string; message?: string }>) {
-    startTransition(async () => {
-      const result = await action();
-      if (result.error) {
-        toast({ variant: "destructive", title: "Erro", description: result.error });
-        return;
-      }
-      toast({ title: result.message ?? "Atualizado." });
-      router.refresh();
-    });
-  }
+  const qualificado = isLeadQualificado(lead);
+  const etapaExibicao = etapaParaSelectAtendimento(lead.etapa);
 
   return (
     <>
@@ -82,11 +71,24 @@ export function AtendimentoHeader({
               <SituacaoBadge situacao={lead.situacao} />
             </div>
             <p className="text-sm text-muted-foreground">
-              {formatTelefoneLead(lead.telefone)} · {ETAPA_LEAD_LABELS[lead.etapa]}
+              {formatTelefoneLead(lead.telefone)}
               {lead.tempo_primeira_resposta_min != null ? (
                 <> · 1ª resposta: {formatTempoPrimeiraResposta(lead.tempo_primeira_resposta_min)}</>
               ) : null}
             </p>
+            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+              <span className="rounded-full bg-muted px-2 py-0.5">
+                {ETAPA_LEAD_LABELS[etapaExibicao]}
+              </span>
+              <span className="rounded-full bg-muted px-2 py-0.5">
+                {formatOrigemDisplay(lead.origem)}
+              </span>
+              {qualificado ? (
+                <span className="rounded-full bg-[#2DC653]/15 px-2 py-0.5 font-medium text-[#1a7a34]">
+                  Qualificado
+                </span>
+              ) : null}
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -107,74 +109,62 @@ export function AtendimentoHeader({
               </Button>
             ) : null}
 
-            <details className="relative">
-              <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted [&::-webkit-details-marker]:hidden">
-                <MoreVertical className="size-4" />
-                Ações
-                <ChevronDown className="size-3.5 opacity-60" />
-              </summary>
-              <div className="absolute right-0 z-30 mt-1 min-w-44 rounded-lg border border-border bg-card py-1 shadow-lg">
-                <Link
-                  href={`/dashboard/atendimentos/${lead.id}?tab=dados`}
-                  className="block px-3 py-2 text-sm hover:bg-muted"
+            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <MoreVertical data-icon="inline-start" />
+                  Ações
+                  <ChevronDown className="size-3.5 opacity-60" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-44">
+                <ActionMenuItem
+                  action="editar"
+                  onSelect={() => {
+                    setMenuOpen(false);
+                    setEditarOpen(true);
+                  }}
                 >
-                  Editar dados
-                </Link>
-                <button
-                  type="button"
-                  disabled={isPending}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
-                  onClick={() => runAction(() => qualificarLead(lead.id))}
+                  Editar
+                </ActionMenuItem>
+                <ActionMenuItem
+                  action="transferir"
+                  onSelect={() => {
+                    setMenuOpen(false);
+                    setTransferirOpen(true);
+                  }}
                 >
-                  <UserCheck className="size-4" />
-                  Qualificar
-                </button>
-                <button
-                  type="button"
-                  disabled={isPending}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
-                  onClick={() => runAction(() => marcarContatoFeito(lead.id))}
+                  Transferir
+                </ActionMenuItem>
+                <ActionMenuItem
+                  action="descartar"
+                  destructive
+                  onSelect={() => {
+                    setMenuOpen(false);
+                    setDescartarOpen(true);
+                  }}
                 >
-                  Contato feito
-                </button>
-                {podeTransferir ? (
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
-                    onClick={() => setTransferirOpen(true)}
-                  >
-                    <UserCog className="size-4" />
-                    Transferir
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[#E63946] hover:bg-muted"
-                  onClick={() => setDescartarOpen(true)}
-                >
-                  <Trash2 className="size-4" />
                   Descartar
-                </button>
-                <Link
-                  href={`/dashboard/atendimentos/${lead.id}?tab=visitas`}
-                  className="block px-3 py-2 text-sm hover:bg-muted"
-                >
-                  Agendar visita
-                </Link>
-              </div>
-            </details>
+                </ActionMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>
 
       <AtendimentoModals
         leadId={lead.id}
+        leadClienteId={lead.cliente_id}
         leadNome={lead.nome}
+        leadTelefone={lead.telefone}
+        leadEmail={lead.email}
         perfis={perfis}
         motivos={motivos}
         podeTransferir={podeTransferir}
+        editarOpen={editarOpen}
         descartarOpen={descartarOpen}
         transferirOpen={transferirOpen}
+        onEditarOpenChange={setEditarOpen}
         onDescartarOpenChange={setDescartarOpen}
         onTransferirOpenChange={setTransferirOpen}
       />

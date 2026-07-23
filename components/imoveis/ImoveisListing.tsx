@@ -5,11 +5,13 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus, X } from "lucide-react";
 
 import { ImovelCardGrid } from "@/components/imoveis/ImovelCardGrid";
+import { ImovelPhotoBadge } from "@/components/atendimentos/ImovelPhotoBadge";
+import type { ImovelListingBadge } from "@/lib/actions/imoveis";
 import { ImovelCardList } from "@/components/imoveis/ImovelCardList";
 import {
+  buildInitialImoveisFilters,
   buildImoveisFilterTags,
   countActiveFilters,
-  defaultImoveisFilters,
   ImoveisFilters,
   type ImoveisFilterState,
 } from "@/components/imoveis/ImoveisFilters";
@@ -28,7 +30,7 @@ import {
 } from "@/components/ui/card";
 import { getImovelCodigo, getValorNumerico } from "@/lib/imoveis/format";
 import { contemNormalizado } from "@/lib/utils/normalizar";
-import type { Imovel, StatusImovel } from "@/types";
+import type { Imovel, StatusImovel, StatusImovelSlug } from "@/types";
 
 const VIEW_MODE_STORAGE_KEY = "fxstudio-imoveis-view";
 const SORT_STORAGE_KEY = "fx-imoveis-sort";
@@ -37,8 +39,10 @@ interface ImoveisListingProps {
   imoveis: Imovel[];
   corretorSlug: string;
   statusList: StatusImovel[];
+  workflowBadges?: Record<string, ImovelListingBadge>;
   initialBusca?: string;
   initialBairro?: string;
+  initialStatusSlug?: StatusImovelSlug;
 }
 
 function matchesMinimo(
@@ -175,14 +179,18 @@ export function ImoveisListing({
   imoveis,
   corretorSlug,
   statusList,
+  workflowBadges = {},
   initialBusca = "",
   initialBairro = "",
+  initialStatusSlug,
 }: ImoveisListingProps) {
   const [search, setSearch] = useState(initialBusca);
-  const [filters, setFilters] = useState<ImoveisFilterState>(() => ({
-    ...defaultImoveisFilters,
-    ...(initialBairro ? { bairros: [initialBairro] } : {}),
-  }));
+  const [filters, setFilters] = useState<ImoveisFilterState>(() =>
+    buildInitialImoveisFilters(statusList, {
+      bairro: initialBairro || undefined,
+      statusSlug: initialStatusSlug,
+    }),
+  );
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ImoveisViewMode>("grid");
   const [sort, setSort] = useState<ImoveisSortOption>("cadastro_desc");
@@ -194,11 +202,16 @@ export function ImoveisListing({
   }, [initialBusca]);
 
   useEffect(() => {
-    if (initialBairro) {
-      setFilters((prev) => ({ ...prev, bairros: [initialBairro] }));
+    if (initialBairro || initialStatusSlug) {
+      setFilters(
+        buildInitialImoveisFilters(statusList, {
+          bairro: initialBairro || undefined,
+          statusSlug: initialStatusSlug,
+        }),
+      );
       setFiltersOpen(true);
     }
-  }, [initialBairro]);
+  }, [initialBairro, initialStatusSlug, statusList]);
 
   useEffect(() => {
     const storedView = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
@@ -248,7 +261,7 @@ export function ImoveisListing({
     [imoveis, search, filters, sort],
   );
 
-  const activeFilterCount = countActiveFilters(filters);
+  const activeFilterCount = countActiveFilters(filters, statusList);
 
   if (imoveis.length === 0) {
     return (
@@ -277,7 +290,7 @@ export function ImoveisListing({
         <div>
           <h2 className="text-lg font-semibold text-primary">Imóveis</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {imoveis.length} imóvel{imoveis.length === 1 ? "" : "is"} no portfólio
+            {imoveis.length} {imoveis.length === 1 ? "imóvel" : "imóveis"} no portfólio
           </p>
         </div>
 
@@ -339,12 +352,30 @@ export function ImoveisListing({
           imoveis={filteredImoveis}
           corretorSlug={corretorSlug}
           statusList={statusList}
+          getCardBadge={(imovel) => {
+            const badge = workflowBadges[imovel.id];
+            if (!badge) return null;
+            return (
+              <ImovelPhotoBadge
+                variant={badge === "negocio_fechado" ? "negocio_fechado" : "proposta"}
+              />
+            );
+          }}
         />
       ) : (
         <ImovelCardList
           imoveis={filteredImoveis}
           corretorSlug={corretorSlug}
           statusList={statusList}
+          getCardBadge={(imovel) => {
+            const badge = workflowBadges[imovel.id];
+            if (!badge) return null;
+            return (
+              <ImovelPhotoBadge
+                variant={badge === "negocio_fechado" ? "negocio_fechado" : "proposta"}
+              />
+            );
+          }}
         />
       )}
     </div>

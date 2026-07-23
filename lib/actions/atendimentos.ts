@@ -1,6 +1,6 @@
 "use server";
 
-import { randomBytes } from "crypto";
+import { randomUUID } from "crypto";
 
 import { revalidatePath } from "next/cache";
 
@@ -8,12 +8,35 @@ import {
   DEFAULT_FICHA_VISITA_TEXTO,
   DEFAULT_MOTIVOS_DESCARTE,
 } from "@/lib/constants/atendimentos";
-import { formatCurrency } from "@/lib/imoveis/format";
+import {
+  formatDateTimeBrasilia,
+  formatLocalDateInput,
+  localDateTimeToUTC,
+  parseLocalDateTimeInput,
+} from "@/lib/dates/format";
 import { podeAvancarEtapa } from "@/lib/leads/etapa-order";
-import { parseLeadObservacoes } from "@/lib/leads/observacoes";
+import { parseLeadObservacoes, mergeLeadObservacoesMeta } from "@/lib/leads/observacoes";
 import { atualizarStatusImovelAutomatico } from "@/lib/actions/imoveis";
+import {
+  avaliarSelecaoPessoaAtendimento,
+  verificarDuplicidadeContatoLead,
+  verificarPessoaExistente,
+} from "@/lib/actions/clientes";
+import { erroDuplicidadePessoa } from "@/lib/pessoas/messages";
+import { normalizeEmail, telefonesEquivalentes } from "@/lib/pessoas/duplicate";
+import { getPerfisEquipe } from "@/lib/actions/configuracoes";
+import { negociosTemCamposCompletos } from "@/lib/negocios/schema";
+import { buildNegocioRow, logSupabaseError } from "@/lib/negocios/row";
+import type { CreateNegocioInput } from "@/lib/negocios/types";
+import {
+  MSG_NEGOCIO_PROPOSTA_NAO_ACEITA,
+  MSG_PROPOSTA_SEM_PARECER,
+} from "@/lib/atendimentos/regras";
+import { normalizar } from "@/lib/utils/normalizar";
+import { isValidUuid } from "@/lib/utils/uuid";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
 import { getPerfilForUser } from "@/lib/supabase/get-perfil";
+import { logPostgrestError } from "@/lib/supabase/postgrest-error";
 import { createClient } from "@/lib/supabase/server";
 import type {
   AtendimentoConfig,
@@ -166,8 +189,14 @@ async function criarAgendaFutura(input: {
   dataAtividade: string;
   lembreteEmail?: boolean;
 }): Promise<void> {
-  const dataAtividade = new Date(input.dataAtividade);
-  if (dataAtividade <= new Date()) return;
+  let dataAtividadeUtc: string;
+  try {
+    dataAtividadeUtc = parseLocalDateTimeInput(input.dataAtividade);
+  } catch {
+    return;
+  }
+
+  if (new Date(dataAtividadeUtc) <= new Date()) return;
 
   const supabase = await createClient();
   await supabase.from("agenda").insert({
@@ -179,7 +208,7 @@ async function criarAgendaFutura(input: {
     tipo: input.tipo,
     titulo: input.titulo,
     descricao: input.descricao ?? null,
-    data_atividade: dataAtividade.toISOString(),
+    data_atividade: dataAtividadeUtc,
     lembrete_email: input.lembreteEmail ?? false,
     status: "pendente",
   });
@@ -189,6 +218,7 @@ export interface CreateAtendimentoInput {
   nome: string;
   telefone: string;
   email?: string;
+  cliente_id?: string;
   midia_nome?: string;
   perfil_id?: string;
   imovel_id?: string;
@@ -218,6 +248,7 @@ async function garantirImovelInteresseSelecionado(
   imovelId: string,
   corretorId: string,
   supabase: Awaited<ReturnType<typeof createClient>>,
+  interesseInicial = false,
 ): Promise<void> {
   const { data: existente } = await supabase
     .from("lead_imoveis_selecionados")
@@ -228,7 +259,7 @@ async function garantirImovelInteresseSelecionado(
     .maybeSingle();
 
   if (existente) {
-    if (!existente.interesse_inicial) {
+    if (interesseInicial && !existente.interesse_inicial) {
       await supabase
         .from("lead_imoveis_selecionados")
         .update({ interesse_inicial: true })
@@ -241,33 +272,39 @@ async function garantirImovelInteresseSelecionado(
     lead_id: leadId,
     imovel_id: imovelId,
     corretor_id: corretorId,
-    interesse_inicial: true,
-    token_compartilhamento: randomBytes(16).toString("hex"),
+    interesse_inicial: interesseInicial,
+    token_compartilhamento: randomUUID(),
   });
 }
 
-function leadTemFiltrosRadar(lead: {
-  finalidade_busca?: string | null;
-  tipo_imovel_busca?: string | null;
-  bairros_interesse?: string[] | null;
-  quartos_minimo?: number | null;
-  suites_minimas?: number | null;
-  banheiros_minimos?: number | null;
-  vagas_minimas?: number | null;
-  valor_minimo?: number | null;
-  valor_maximo?: number | null;
-}): boolean {
-  return Boolean(
-    lead.finalidade_busca ||
-      lead.tipo_imovel_busca ||
-      lead.bairros_interesse?.length ||
-      lead.quartos_minimo ||
-      lead.suites_minimas ||
-      lead.banheiros_minimos ||
-      lead.vagas_minimas ||
-      lead.valor_minimo != null ||
-      lead.valor_maximo != null,
-  );
+function campoTextoPreenchido(valor?: string | null): boolean {
+  return Boolean(valor?.trim());
+}
+
+function numeroFiltroAtivo(valor?: number | null): boolean {
+  return valor != null && valor > 0;
+}
+
+function imovelCompativelBairros(imovel: Imovel, bairrosInteresse: string[]): boolean {
+  const bairroImovel = normalizar(imovel.bairro ?? "");
+  if (!bairroImovel) return false;
+
+  return bairrosInteresse.some((bairro) => {
+    const alvo = normalizar(bairro);
+    return bairroImovel.includes(alvo) || alvo.includes(bairroImovel);
+  });
+}
+
+function imovelCompativelValor(
+  imovel: Imovel,
+  valorMinimo?: number | null,
+  valorMaximo?: number | null,
+): boolean {
+  const valor = imovel.finalidade === "venda" ? imovel.valor_venda : imovel.valor_locacao;
+  if (valor == null) return false;
+  if (numeroFiltroAtivo(valorMinimo) && valor < valorMinimo!) return false;
+  if (numeroFiltroAtivo(valorMaximo) && valor > valorMaximo!) return false;
+  return true;
 }
 
 export async function podeExcluirAtendimento(): Promise<boolean> {
@@ -330,6 +367,41 @@ export async function createAtendimento(
   const perfilId = input.perfil_id ?? perfil?.id ?? null;
 
   const supabase = await createClient();
+
+  let clienteId = input.cliente_id ?? null;
+
+  if (clienteId) {
+    const duplicidadeLead = await verificarDuplicidadeContatoLead(
+      telefone,
+      input.email,
+      undefined,
+      clienteId,
+    );
+    if (duplicidadeLead.bloqueado) {
+      return {
+        error: duplicidadeLead.mensagem ?? "Esta pessoa já tem um atendimento ativo.",
+      };
+    }
+  } else {
+    const duplicidadeLead = await verificarDuplicidadeContatoLead(telefone, input.email);
+    if (duplicidadeLead.bloqueado) {
+      return { error: duplicidadeLead.mensagem ?? "Essa pessoa já está cadastrada." };
+    }
+
+    const duplicidade = await verificarPessoaExistente(corretor.id, telefone, input.email);
+    if (duplicidade.existe && duplicidade.cliente?.id) {
+      const avaliacao = await avaliarSelecaoPessoaAtendimento(duplicidade.cliente.id);
+      if (avaliacao.tipo === "bloqueado") {
+        return {
+          error:
+            avaliacao.mensagem ??
+            erroDuplicidadePessoa(duplicidade.motivo!, duplicidade.cliente.nome),
+        };
+      }
+      clienteId = duplicidade.cliente.id;
+    }
+  }
+
   const codigo = await gerarCodigoAtendimento(supabase, corretor.id);
   const agora = new Date().toISOString();
 
@@ -337,6 +409,7 @@ export async function createAtendimento(
     .from("leads")
     .insert({
       corretor_id: corretor.id,
+      cliente_id: clienteId,
       nome,
       telefone,
       email: input.email?.trim() || null,
@@ -382,6 +455,7 @@ export async function createAtendimento(
       input.imovel_id,
       corretor.id,
       supabase,
+      true,
     );
   }
 
@@ -399,25 +473,29 @@ export async function getAtendimentoCompleto(leadId: string) {
     await Promise.all([
       supabase
         .from("leads")
-        .select("*, imovel:imoveis!leads_imovel_id_fkey(*), perfil:perfis(id, nome, email, papel), interacoes:lead_interacoes(*)")
+        .select("*, imovel:imoveis!leads_imovel_id_fkey(*, fotos:imovel_fotos(*)), perfil:perfis(id, nome, email, papel), interacoes:lead_interacoes(*)")
         .eq("id", leadId)
         .eq("corretor_id", corretor.id)
         .maybeSingle(),
       supabase
         .from("visitas")
-        .select("*, imovel:imoveis(id, titulo, codigo, bairro, finalidade, status)")
+        .select("*, imovel:imoveis(*, fotos:imovel_fotos(*))")
         .eq("lead_id", leadId)
         .eq("corretor_id", corretor.id)
         .order("data_visita", { ascending: false }),
       supabase
         .from("propostas")
-        .select("*, imovel:imoveis(id, titulo, codigo, bairro, finalidade, status)")
+        .select(
+          "*, imovel:imoveis(*, fotos:imovel_fotos(*), captador:perfis!captador_id(id, nome))",
+        )
         .eq("lead_id", leadId)
         .eq("corretor_id", corretor.id)
         .order("data_proposta", { ascending: false }),
       supabase
         .from("negocios")
-        .select("*, imovel:imoveis(id, titulo, codigo, bairro, finalidade, status, captador_id, captador:perfis(id, nome)), perfil:perfis(id, nome)")
+        .select(
+          "*, imovel:imoveis(*, fotos:imovel_fotos(*), captador:perfis!captador_id(id, nome)), perfil:perfis(id, nome)",
+        )
         .eq("lead_id", leadId)
         .eq("corretor_id", corretor.id)
         .order("data_fechamento", { ascending: false }),
@@ -483,7 +561,7 @@ export interface UpdateAtendimentoDadosInput {
   temperatura?: TemperaturaLead;
   etapa?: EtapaLead;
   situacao?: SituacaoLead;
-  finalidade_busca?: string;
+  finalidade_busca?: string | null;
   tipo_imovel_busca?: string;
   bairros_interesse?: string[];
   quartos_minimo?: number | null;
@@ -547,16 +625,6 @@ export async function updateAtendimentoDados(
   if (input.observacoes !== undefined) payload.observacoes = input.observacoes?.trim() || null;
 
   if (input.etapa !== undefined) {
-    const { data: atual } = await supabase
-      .from("leads")
-      .select("etapa")
-      .eq("id", leadId)
-      .eq("corretor_id", corretor.id)
-      .maybeSingle();
-    const etapaAtual = (atual?.etapa ?? "novo") as EtapaLead;
-    if (!podeAvancarEtapa(etapaAtual, input.etapa)) {
-      return { error: "Não é possível retroceder a etapa." };
-    }
     payload.etapa = input.etapa;
   }
 
@@ -585,41 +653,103 @@ export async function updateAtendimentoDados(
 export async function descartarAtendimento(
   leadId: string,
   motivoId: string,
-  observacao?: string,
+  observacao: string,
 ): Promise<AtendimentoActionResult> {
   const corretor = await getCorretorForUser();
   if (!corretor) return { error: "Sessão expirada." };
 
+  const motivoIdTrim = motivoId.trim();
+  if (!isValidUuid(motivoIdTrim)) {
+    return { error: "Selecione um motivo válido." };
+  }
+
+  const observacaoTrim = observacao.trim();
+  if (!observacaoTrim) return { error: "Informe informações adicionais." };
+
   const supabase = await createClient();
+
+  const { data: leadExistente, error: leadBuscaError } = await supabase
+    .from("leads")
+    .select("id")
+    .eq("id", leadId)
+    .eq("corretor_id", corretor.id)
+    .maybeSingle();
+
+  if (leadBuscaError || !leadExistente) {
+    if (leadBuscaError) {
+      console.error(
+        "[descartar lead] erro completo:",
+        JSON.stringify(leadBuscaError, null, 2),
+      );
+    }
+    return { error: "Atendimento não encontrado." };
+  }
+
   const { data: motivo } = await supabase
     .from("motivos_descarte")
     .select("nome")
-    .eq("id", motivoId)
+    .eq("id", motivoIdTrim)
     .eq("corretor_id", corretor.id)
     .maybeSingle();
 
   if (!motivo) return { error: "Motivo não encontrado." };
 
-  const { error } = await supabase
-    .from("leads")
-    .update({
+  const agora = new Date().toISOString();
+  const updateTiers: Record<string, unknown>[] = [
+    {
       situacao: "descartado",
       etapa: "perdido",
-      atualizado_em: new Date().toISOString(),
-    })
-    .eq("id", leadId)
-    .eq("corretor_id", corretor.id);
+      motivo_descarte_id: motivoIdTrim,
+      motivo_descarte_texto: observacaoTrim,
+      atualizado_em: agora,
+    },
+    {
+      situacao: "descartado",
+      etapa: "perdido",
+      atualizado_em: agora,
+    },
+    {
+      etapa: "perdido",
+      atualizado_em: agora,
+    },
+  ];
 
-  if (error) return { error: "Não foi possível descartar." };
+  let descartado = false;
+  let motivoPersistido = false;
 
-  const msg = observacao?.trim()
-    ? `Atendimento descartado: ${motivo.nome}. ${observacao.trim()}`
-    : `Atendimento descartado: ${motivo.nome}.`;
+  for (const payload of updateTiers) {
+    const { data, error } = await supabase
+      .from("leads")
+      .update(payload)
+      .eq("id", leadId)
+      .eq("corretor_id", corretor.id)
+      .select("id")
+      .maybeSingle();
+
+    if (error) {
+      console.error("[descartar lead] erro completo:", JSON.stringify(error, null, 2));
+      continue;
+    }
+
+    if (data) {
+      descartado = true;
+      motivoPersistido = "motivo_descarte_id" in payload;
+      break;
+    }
+  }
+
+  if (!descartado) {
+    return { error: "Não foi possível descartar." };
+  }
+
+  const msg = `Atendimento descartado. Motivo: ${motivo.nome}. ${observacaoTrim}`;
 
   await registrarInteracao(leadId, "anotacao", msg);
   await registrarAuditoria(leadId, "atendimento_descartado", {
-    motivo_id: motivoId,
+    motivo_id: motivoIdTrim,
     motivo: motivo.nome,
+    observacao: observacaoTrim,
+    motivo_persistido_colunas: motivoPersistido,
   });
 
   revalidateAtendimentoPaths(leadId);
@@ -677,9 +807,38 @@ export async function transferirAtendimento(
   return { success: true, message: `Transferido para ${destino.nome}.` };
 }
 
-export async function getImoveisRadar(leadId: string): Promise<Imovel[]> {
+export async function getBairrosImoveisCadastrados(): Promise<string[]> {
   const corretor = await getCorretorForUser();
   if (!corretor) return [];
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("imoveis")
+    .select("bairro")
+    .eq("corretor_id", corretor.id)
+    .eq("status", "disponivel")
+    .not("bairro", "is", null);
+
+  if (error) {
+    logPostgrestError("Radar.bairros", error);
+    return [];
+  }
+
+  const bairros = new Set<string>();
+  for (const row of data ?? []) {
+    const bairro = row.bairro?.trim();
+    if (bairro) bairros.add(bairro);
+  }
+
+  return Array.from(bairros).sort((a, b) => a.localeCompare(b, "pt-BR"));
+}
+
+export async function getImoveisRadar(leadId: string): Promise<Imovel[]> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) {
+    console.log("[Radar] corretor não encontrado");
+    return [];
+  }
 
   const supabase = await createClient();
   const { data: lead } = await supabase
@@ -689,63 +848,81 @@ export async function getImoveisRadar(leadId: string): Promise<Imovel[]> {
     .eq("corretor_id", corretor.id)
     .maybeSingle();
 
-  if (!lead) return [];
+  if (!lead) {
+    console.log("[Radar] lead não encontrado", { leadId });
+    return [];
+  }
+
+  console.log("[Radar] buscando imóveis compatíveis", {
+    leadId,
+    corretorId: corretor.id,
+    filtros: {
+      finalidade_busca: lead.finalidade_busca,
+      tipo_imovel_busca: lead.tipo_imovel_busca,
+      bairros_interesse: lead.bairros_interesse,
+      quartos_minimo: lead.quartos_minimo,
+      suites_minimas: lead.suites_minimas,
+      banheiros_minimos: lead.banheiros_minimos,
+      vagas_minimas: lead.vagas_minimas,
+      valor_minimo: lead.valor_minimo,
+      valor_maximo: lead.valor_maximo,
+    },
+  });
 
   let query = supabase
     .from("imoveis")
-    .select("*, fotos:imovel_fotos(*), captador:perfis(id, nome)")
+    .select("*, fotos:imovel_fotos(*), captador:perfis!captador_id(id, nome), status_imovel:status_imovel(*)")
     .eq("corretor_id", corretor.id)
-    .eq("status", "disponivel")
-    .eq("status_aprovacao", "aprovado");
+    .eq("status", "disponivel");
 
-  const aplicarFiltros = leadTemFiltrosRadar(lead);
-
-  if (aplicarFiltros) {
+  if (campoTextoPreenchido(lead.finalidade_busca)) {
     if (lead.finalidade_busca === "compra") {
       query = query.eq("finalidade", "venda");
     } else if (lead.finalidade_busca === "locacao") {
       query = query.eq("finalidade", "locacao");
     }
-
-    if (lead.tipo_imovel_busca) {
-      query = query.eq("tipo", lead.tipo_imovel_busca);
-    }
-
-    if (lead.quartos_minimo) {
-      query = query.gte("quartos", lead.quartos_minimo);
-    }
-    if (lead.suites_minimas) {
-      query = query.gte("suites", lead.suites_minimas);
-    }
-    if (lead.banheiros_minimos) {
-      query = query.gte("banheiros", lead.banheiros_minimos);
-    }
-    if (lead.vagas_minimas) {
-      query = query.gte("vagas", lead.vagas_minimas);
-    }
   }
 
-  const { data } = await query.order("atualizado_em", { ascending: false }).limit(50);
+  if (campoTextoPreenchido(lead.tipo_imovel_busca)) {
+    query = query.eq("tipo", lead.tipo_imovel_busca);
+  }
+
+  if (numeroFiltroAtivo(lead.quartos_minimo)) {
+    query = query.gte("quartos", lead.quartos_minimo!);
+  }
+  if (numeroFiltroAtivo(lead.suites_minimas)) {
+    query = query.gte("suites", lead.suites_minimas!);
+  }
+  if (numeroFiltroAtivo(lead.banheiros_minimos)) {
+    query = query.gte("banheiros", lead.banheiros_minimos!);
+  }
+  if (numeroFiltroAtivo(lead.vagas_minimas)) {
+    query = query.gte("vagas", lead.vagas_minimas!);
+  }
+
+  const { data, error } = await query.order("atualizado_em", { ascending: false }).limit(50);
+
+  if (error) {
+    logPostgrestError("Radar", error);
+    return [];
+  }
 
   let imoveis = (data ?? []) as Imovel[];
+  console.log("[Radar] imóveis disponíveis antes dos filtros locais", { total: imoveis.length });
 
-  if (aplicarFiltros && lead.bairros_interesse?.length) {
-    const bairros = lead.bairros_interesse.map((b: string) => b.toLowerCase());
-    imoveis = imoveis.filter((i) =>
-      bairros.some((b: string) => i.bairro?.toLowerCase().includes(b)),
+  if (lead.bairros_interesse?.length) {
+    imoveis = imoveis.filter((imovel) => imovelCompativelBairros(imovel, lead.bairros_interesse!));
+    console.log("[Radar] após filtro de bairros", { total: imoveis.length });
+  }
+
+  if (numeroFiltroAtivo(lead.valor_minimo) || numeroFiltroAtivo(lead.valor_maximo)) {
+    imoveis = imoveis.filter((imovel) =>
+      imovelCompativelValor(imovel, lead.valor_minimo, lead.valor_maximo),
     );
+    console.log("[Radar] após filtro de valor", { total: imoveis.length });
   }
 
-  if (aplicarFiltros && (lead.valor_minimo != null || lead.valor_maximo != null)) {
-    imoveis = imoveis.filter((i) => {
-      const valor = i.finalidade === "venda" ? i.valor_venda : i.valor_locacao;
-      if (valor == null) return false;
-      if (lead.valor_minimo != null && valor < lead.valor_minimo) return false;
-      if (lead.valor_maximo != null && valor > lead.valor_maximo) return false;
-      return true;
-    });
-  }
-
+  console.log("[Radar] resultado final", { total: imoveis.length });
   return imoveis;
 }
 
@@ -933,6 +1110,118 @@ export async function podeTransferirAtendimento(): Promise<boolean> {
   return perfil?.papel === "admin" || perfil?.papel === "gerente";
 }
 
+export async function getPerfisForTransferencia(): Promise<{ id: string; nome: string }[]> {
+  const perfis = await getPerfisEquipe();
+  return perfis
+    .filter((p) => p.ativo)
+    .map((p) => ({ id: p.id, nome: p.nome }))
+    .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+}
+
+export interface UpdateAtendimentoCadastroInput {
+  nome: string;
+  telefone: string;
+  email?: string;
+}
+
+export async function updateAtendimentoCadastro(
+  leadId: string,
+  input: UpdateAtendimentoCadastroInput,
+): Promise<AtendimentoActionResult> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) return { error: "Sessão expirada." };
+
+  const nome = input.nome.trim();
+  const telefone = input.telefone.trim();
+
+  if (!nome) return { error: "Informe o nome." };
+  if (!telefone) return { error: "Informe o telefone." };
+
+  const supabase = await createClient();
+  const { data: leadAtual, error: leadError } = await supabase
+    .from("leads")
+    .select("id, cliente_id, telefone, email")
+    .eq("id", leadId)
+    .eq("corretor_id", corretor.id)
+    .maybeSingle();
+
+  if (leadError || !leadAtual) {
+    return { error: "Atendimento não encontrado." };
+  }
+
+  const telefoneMudou = !telefonesEquivalentes(telefone, leadAtual.telefone ?? "");
+  const emailMudou =
+    normalizeEmail(input.email ?? "") !== normalizeEmail(leadAtual.email ?? "");
+
+  if (telefoneMudou || emailMudou) {
+    const duplicidadeLead = await verificarDuplicidadeContatoLead(
+      telefone,
+      input.email,
+      leadId,
+      leadAtual.cliente_id ?? undefined,
+    );
+    if (duplicidadeLead.bloqueado) {
+      return { error: duplicidadeLead.mensagem ?? "Contato já cadastrado." };
+    }
+
+    const duplicidade = await verificarPessoaExistente(
+      corretor.id,
+      telefone,
+      input.email,
+      leadAtual.cliente_id ?? undefined,
+      leadId,
+    );
+    if (duplicidade.existe && duplicidade.cliente && duplicidade.motivo) {
+      return { error: erroDuplicidadePessoa(duplicidade.motivo, duplicidade.cliente.nome) };
+    }
+  }
+
+  const agora = new Date().toISOString();
+  const emailNormalizado = input.email?.trim() || null;
+
+  const { error } = await supabase
+    .from("leads")
+    .update({
+      nome,
+      telefone,
+      email: emailNormalizado,
+      atualizado_em: agora,
+    })
+    .eq("id", leadId)
+    .eq("corretor_id", corretor.id);
+
+  if (error) {
+    console.error("[updateAtendimentoCadastro]", {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    });
+    return { error: "Não foi possível salvar o cadastro." };
+  }
+
+  if (leadAtual.cliente_id) {
+    const { error: clienteError } = await supabase
+      .from("clientes")
+      .update({
+        nome,
+        telefone,
+        email: emailNormalizado,
+        atualizado_em: agora,
+      })
+      .eq("id", leadAtual.cliente_id)
+      .eq("corretor_id", corretor.id);
+
+    if (clienteError) {
+      console.error("[updateAtendimentoCadastro] cliente sync failed", clienteError);
+    }
+  }
+
+  await registrarAuditoria(leadId, "cadastro_atualizado", { nome, telefone });
+  revalidateAtendimentoPaths(leadId);
+  return { success: true, message: "Cadastro atualizado." };
+}
+
 export interface CreateVisitaInput {
   imovel_id: string;
   perfil_id?: string;
@@ -959,6 +1248,13 @@ export async function createVisita(
 
   if (leadError || !lead) return { error: "Atendimento não encontrado." };
 
+  let dataVisitaUtc: string;
+  try {
+    dataVisitaUtc = parseLocalDateTimeInput(input.data_visita);
+  } catch {
+    return { error: "Data ou hora inválida." };
+  }
+
   const { data, error } = await supabase
     .from("visitas")
     .insert({
@@ -966,7 +1262,7 @@ export async function createVisita(
       lead_id: leadId,
       imovel_id: input.imovel_id,
       perfil_id: input.perfil_id ?? null,
-      data_visita: new Date(input.data_visita).toISOString(),
+      data_visita: dataVisitaUtc,
       status: input.status ?? "agendada",
       observacoes: input.observacoes?.trim() || null,
     })
@@ -1017,6 +1313,8 @@ export async function updateVisita(
   const corretor = await getCorretorForUser();
   if (!corretor) return { error: "Sessão expirada." };
 
+  console.log("[Visita] atualizando", { visitaId, input });
+
   const supabase = await createClient();
   const { data: visita, error: buscaError } = await supabase
     .from("visitas")
@@ -1025,7 +1323,15 @@ export async function updateVisita(
     .eq("corretor_id", corretor.id)
     .maybeSingle();
 
-  if (buscaError || !visita) return { error: "Visita não encontrada." };
+  if (buscaError) {
+    console.error("[Visita] erro ao buscar visita", buscaError);
+    return { error: "Visita não encontrada." };
+  }
+
+  if (!visita) {
+    console.log("[Visita] visita não encontrada", { visitaId });
+    return { error: "Visita não encontrada." };
+  }
 
   const payload: Record<string, unknown> = {};
   if (input.status) payload.status = input.status;
@@ -1033,12 +1339,54 @@ export async function updateVisita(
   if (input.vai_gerar_proposta !== undefined) {
     payload.vai_gerar_proposta = input.vai_gerar_proposta || null;
   }
-  if (input.observacoes !== undefined) payload.observacoes = input.observacoes.trim() || null;
-  if (input.data_visita) payload.data_visita = new Date(input.data_visita).toISOString();
+  if (input.observacoes !== undefined) {
+    payload.observacoes = input.observacoes?.trim() || null;
+  }
+  if (input.data_visita) {
+    try {
+      payload.data_visita = parseLocalDateTimeInput(input.data_visita);
+    } catch {
+      return { error: "Data ou hora inválida." };
+    }
+  }
 
-  const { error } = await supabase.from("visitas").update(payload).eq("id", visitaId);
+  if (Object.keys(payload).length === 0) {
+    console.log("[Visita] payload vazio, nada a atualizar");
+    return { error: "Nenhum dado para atualizar." };
+  }
 
-  if (error) return { error: "Não foi possível atualizar a visita." };
+  console.log("[Visita] payload", payload);
+
+  const logContext = input.parecer !== undefined ? "registrarParecer" : "updateVisita";
+
+  const { data: updated, error } = await supabase
+    .from("visitas")
+    .update(payload)
+    .eq("id", visitaId)
+    .eq("corretor_id", corretor.id)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.error(`[${logContext}]`, {
+      visitaId,
+      payload,
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    });
+    return { error: "Não foi possível atualizar a visita." };
+  }
+
+  if (!updated) {
+    console.error(`[${logContext}]`, {
+      visitaId,
+      payload,
+      message: "Nenhuma linha atualizada (visita não encontrada ou sem permissão).",
+    });
+    return { error: "Visita não encontrada ou sem permissão para atualizar." };
+  }
 
   const leadId = visita.lead_id as string;
 
@@ -1069,8 +1417,10 @@ export async function editarVisita(
     return { error: "Informe data e hora." };
   }
 
-  const dataVisita = new Date(`${data}T${hora}`);
-  if (Number.isNaN(dataVisita.getTime())) {
+  let novaData: string;
+  try {
+    novaData = localDateTimeToUTC(data, hora);
+  } catch {
     return { error: "Data ou hora inválida." };
   }
 
@@ -1083,8 +1433,6 @@ export async function editarVisita(
     .maybeSingle();
 
   if (buscaError || !visita) return { error: "Visita não encontrada." };
-
-  const novaData = dataVisita.toISOString();
   const leadId = visita.lead_id as string;
   const imovelCodigo =
     (visita.imovel as { codigo?: string | null } | null)?.codigo ?? "????";
@@ -1102,12 +1450,9 @@ export async function editarVisita(
     .eq("visita_id", visitaId)
     .eq("corretor_id", corretor.id);
 
-  const dataFmt = dataVisita.toLocaleDateString("pt-BR");
-  const horaFmt = dataVisita.toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  const horaExibicao = horaFmt.replace(":", "h");
+  const dataHoraFmt = formatDateTimeBrasilia(novaData);
+  const [dataFmt, horaFmt] = dataHoraFmt.split(", ");
+  const horaExibicao = horaFmt?.replace(":", "h") ?? horaFmt;
 
   await registrarInteracao(
     leadId,
@@ -1137,276 +1482,106 @@ export async function deleteVisita(visitaId: string): Promise<AtendimentoActionR
 
   if (!visita) return { error: "Visita não encontrada." };
 
-  const { error } = await supabase.from("visitas").delete().eq("id", visitaId);
-  if (error) return { error: "Não foi possível excluir." };
+  const { error: agendaError } = await supabase
+    .from("agenda")
+    .delete()
+    .eq("visita_id", visitaId)
+    .eq("corretor_id", corretor.id);
+
+  if (agendaError) {
+    console.error("[deleteVisita]", {
+      visitaId,
+      step: "agenda",
+      message: agendaError.message,
+      code: agendaError.code,
+      details: agendaError.details,
+      hint: agendaError.hint,
+    });
+    return { error: "Não foi possível excluir a visita (agenda vinculada)." };
+  }
+
+  const { error } = await supabase
+    .from("visitas")
+    .delete()
+    .eq("id", visitaId)
+    .eq("corretor_id", corretor.id);
+
+  if (error) {
+    console.error("[deleteVisita]", {
+      visitaId,
+      step: "visita",
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    });
+    return { error: "Não foi possível excluir." };
+  }
 
   await registrarInteracao(visita.lead_id as string, "visita", "Visita excluída.");
   revalidateAtendimentoPaths(visita.lead_id as string);
   return { success: true, message: "Visita excluída." };
 }
 
+export async function cancelarVisitasEmLote(
+  visitaIds: string[],
+): Promise<AtendimentoActionResult> {
+  if (!visitaIds.length) return { error: "Nenhuma visita selecionada." };
+
+  let canceladas = 0;
+  for (const id of visitaIds) {
+    const result = await updateVisita(id, { status: "cancelada" });
+    if (!result.error) canceladas += 1;
+  }
+
+  if (canceladas === 0) {
+    return { error: "Não foi possível cancelar as visitas selecionadas." };
+  }
+
+  return {
+    success: true,
+    message:
+      canceladas === visitaIds.length
+        ? `${canceladas} visita(s) cancelada(s).`
+        : `${canceladas} de ${visitaIds.length} visita(s) cancelada(s).`,
+  };
+}
+
+export async function excluirVisitasEmLote(
+  visitaIds: string[],
+): Promise<AtendimentoActionResult> {
+  if (!visitaIds.length) return { error: "Nenhuma visita selecionada." };
+
+  let excluidas = 0;
+  for (const id of visitaIds) {
+    const result = await deleteVisita(id);
+    if (!result.error) excluidas += 1;
+  }
+
+  if (excluidas === 0) {
+    return { error: "Não foi possível excluir as visitas selecionadas." };
+  }
+
+  return {
+    success: true,
+    message:
+      excluidas === visitaIds.length
+        ? `${excluidas} visita(s) excluída(s).`
+        : `${excluidas} de ${visitaIds.length} visita(s) excluída(s).`,
+  };
+}
+
 export async function gerarFichaVisitaHtml(
   leadId: string,
   visitaIds: string[],
 ): Promise<AtendimentoActionResult & { html?: string }> {
-  const corretor = await getCorretorForUser();
-  if (!corretor) return { error: "Sessão expirada." };
-  if (!visitaIds.length) return { error: "Selecione ao menos uma visita." };
-
-  const supabase = await createClient();
-  const perfil = await getPerfilForUser();
-
-  const [leadRes, visitasRes, config] = await Promise.all([
-    supabase
-      .from("leads")
-      .select("nome, telefone, email, codigo_atendimento")
-      .eq("id", leadId)
-      .eq("corretor_id", corretor.id)
-      .maybeSingle(),
-    supabase
-      .from("visitas")
-      .select(
-        "*, imovel:imoveis(titulo, codigo, bairro, cidade, logradouro, numero, complemento, estado, cep, finalidade, valor_venda, valor_locacao)",
-      )
-      .in("id", visitaIds)
-      .eq("corretor_id", corretor.id)
-      .order("data_visita", { ascending: true }),
-    getAtendimentoConfig(),
-  ]);
-
-  const lead = leadRes.data;
-  const visitas = visitasRes.data ?? [];
-  if (!lead || !visitas.length) return { error: "Dados não encontrados." };
-
-  type ImovelFicha = {
-    titulo?: string | null;
-    codigo?: string | null;
-    bairro?: string | null;
-    cidade?: string | null;
-    logradouro?: string | null;
-    numero?: string | null;
-    complemento?: string | null;
-    estado?: string | null;
-    cep?: string | null;
-    finalidade?: string | null;
-    valor_venda?: number | null;
-    valor_locacao?: number | null;
-  };
-
-  function formatEnderecoCompleto(imovel: ImovelFicha): string {
-    const logradouro = [imovel.logradouro, imovel.numero].filter(Boolean).join(", ");
-    const partes = [
-      logradouro || null,
-      imovel.complemento,
-      imovel.bairro,
-      [imovel.cidade, imovel.estado].filter(Boolean).join(" - ") || null,
-      imovel.cep ? `CEP ${imovel.cep}` : null,
-    ].filter(Boolean);
-    return partes.join(" · ");
-  }
-
-  function getValorImovel(imovel: ImovelFicha): string {
-    const valor =
-      imovel.finalidade === "venda" ? imovel.valor_venda : imovel.valor_locacao;
-    if (valor == null) return "—";
-    if (imovel.finalidade === "locacao") {
-      return `${formatCurrency(valor)}/mês`;
-    }
-    return formatCurrency(valor);
-  }
-
-  const primeiraVisita = visitas[0];
-  const dataRef = new Date(primeiraVisita.data_visita as string);
-  const meses = [
-    "janeiro",
-    "fevereiro",
-    "março",
-    "abril",
-    "maio",
-    "junho",
-    "julho",
-    "agosto",
-    "setembro",
-    "outubro",
-    "novembro",
-    "dezembro",
-  ];
-  const cidadeImovel =
-    (primeiraVisita.imovel as ImovelFicha | null)?.cidade ??
-    (primeiraVisita.imovel as ImovelFicha | null)?.bairro ??
-    "";
-
-  const corretorNome = perfil?.nome ?? corretor.nome;
-  const corretorTelefone =
-    perfil?.telefone ?? corretor.contato_telefone ?? corretor.telefone ?? "—";
-
-  const visitasHtml = visitas
-    .map((v) => {
-      const im = v.imovel as ImovelFicha | null;
-      const codigo = im?.codigo ?? "—";
-      const endereco = im ? formatEnderecoCompleto(im) : "—";
-      const valor = im ? getValorImovel(im) : "—";
-      const dataVisita = new Date(v.data_visita as string).toLocaleString("pt-BR", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-
-      return `<div class="visita-item">
-        <h3>Imóvel #${escapeHtml(codigo)}</h3>
-        <p><strong>Endereço:</strong> ${escapeHtml(endereco)}</p>
-        <p><strong>Valor:</strong> ${escapeHtml(valor)}</p>
-        <p><strong>Visita:</strong> ${escapeHtml(dataVisita)}</p>
-      </div>`;
-    })
-    .join("");
-
-  const imoveisLista = visitas
-    .map((v) => {
-      const im = v.imovel as ImovelFicha | null;
-      return `- ${im?.titulo ?? im?.codigo ?? "Imóvel"} (${im?.bairro ?? ""})`;
-    })
-    .join("\n");
-
-  const template = config?.ficha_visita_texto ?? DEFAULT_FICHA_VISITA_TEXTO;
-  const textoPersonalizado = template
-    .replace(/\[Nome do corretor\]/g, corretorNome)
-    .replace(/\[Nome do lead\]/g, lead.nome ?? "")
-    .replace(/\[Cidade do imóvel\]/g, cidadeImovel)
-    .replace(/\[Dia\]/g, String(dataRef.getDate()))
-    .replace(/\[Mês\]/g, meses[dataRef.getMonth()] ?? "")
-    .replace(/\[Ano\]/g, String(dataRef.getFullYear()))
-    .replace(/\{\{cliente_nome\}\}/g, lead.nome ?? "")
-    .replace(/\{\{cliente_telefone\}\}/g, lead.telefone ?? "")
-    .replace(/\{\{data_visita\}\}/g, dataRef.toLocaleDateString("pt-BR"))
-    .replace(/\{\{imoveis_lista\}\}/g, imoveisLista)
-    .replace(/\{\{observacoes\}\}/g, "")
-    .replace(/\{\{corretor_nome\}\}/g, corretorNome);
-
-  const imobiliariaNome = corretor.nome;
-  const imobiliariaEndereco = corretor.contato_endereco ?? "";
-  const imobiliariaTelefone =
-    corretor.contato_telefone ?? corretor.telefone ?? corretor.whatsapp ?? "";
-
-  const fullHtml = `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="utf-8">
-  <title>Ficha de visita — ${escapeHtml(lead.codigo_atendimento ?? lead.nome ?? "Atendimento")}</title>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      font-family: "Segoe UI", system-ui, sans-serif;
-      color: #1a1a2e;
-      line-height: 1.5;
-      max-width: 800px;
-      margin: 0 auto;
-      padding: 32px 24px;
-      font-size: 14px;
-    }
-    .header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 2px solid #1a1a2e;
-      padding-bottom: 16px;
-      margin-bottom: 24px;
-    }
-    .header h1 { margin: 0; font-size: 20px; }
-    .header .meta { text-align: right; font-size: 12px; color: #555; }
-    .block {
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      padding: 16px;
-      margin-bottom: 16px;
-    }
-    .block h2 {
-      margin: 0 0 12px;
-      font-size: 13px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: #555;
-    }
-    .block dl { margin: 0; display: grid; grid-template-columns: 120px 1fr; gap: 4px 12px; }
-    .block dt { color: #666; }
-    .block dd { margin: 0; font-weight: 500; }
-    .visita-item {
-      border-top: 1px solid #eee;
-      padding-top: 12px;
-      margin-top: 12px;
-    }
-    .visita-item:first-child { border-top: none; padding-top: 0; margin-top: 0; }
-    .visita-item h3 { margin: 0 0 6px; font-size: 15px; }
-    .visita-item p { margin: 2px 0; }
-    .texto-personalizado {
-      white-space: pre-wrap;
-      background: #f8f9fa;
-      border-radius: 6px;
-      padding: 16px;
-      margin-top: 16px;
-    }
-    @media print {
-      body { padding: 16px; }
-      .block { break-inside: avoid; }
-      .visita-item { break-inside: avoid; }
-    }
-  </style>
-</head>
-<body>
-  <header class="header">
-    <div>
-      <h1>${escapeHtml(imobiliariaNome)}</h1>
-      ${imobiliariaEndereco ? `<p style="margin:4px 0 0;font-size:12px;color:#555">${escapeHtml(imobiliariaEndereco)}</p>` : ""}
-    </div>
-    <div class="meta">
-      ${imobiliariaTelefone ? `<p>Tel: ${escapeHtml(imobiliariaTelefone)}</p>` : ""}
-      <p>Ficha de visita</p>
-      <p>${escapeHtml(new Date().toLocaleDateString("pt-BR"))}</p>
-    </div>
-  </header>
-
-  <section class="block">
-    <h2>Lead</h2>
-    <dl>
-      <dt>Código ATD</dt><dd>${escapeHtml(lead.codigo_atendimento ?? "—")}</dd>
-      <dt>Nome</dt><dd>${escapeHtml(lead.nome ?? "—")}</dd>
-      <dt>Telefone</dt><dd>${escapeHtml(lead.telefone ?? "—")}</dd>
-      <dt>E-mail</dt><dd>${escapeHtml(lead.email ?? "—")}</dd>
-    </dl>
-  </section>
-
-  <section class="block">
-    <h2>Corretor responsável</h2>
-    <dl>
-      <dt>Nome</dt><dd>${escapeHtml(corretorNome)}</dd>
-      <dt>Telefone</dt><dd>${escapeHtml(corretorTelefone)}</dd>
-    </dl>
-  </section>
-
-  <section class="block">
-    <h2>Imóveis visitados</h2>
-    ${visitasHtml}
-  </section>
-
-  <section class="texto-personalizado">${escapeHtml(textoPersonalizado)}</section>
-</body>
-</html>`;
-
-  return { success: true, html: fullHtml };
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+  const { generateFichaVisita } = await import("@/lib/actions/ficha-visita");
+  return generateFichaVisita(leadId, visitaIds);
 }
 
 export interface CreatePropostaInput {
   imovel_id: string;
+  visita_id?: string;
   perfil_id?: string;
   valor_proposto: number;
   data_proposta: string;
@@ -1423,6 +1598,23 @@ export async function createProposta(
 
   const supabase = await createClient();
   const status = input.status ?? "em_analise";
+
+  if (input.visita_id) {
+    const { data: visita, error: visitaError } = await supabase
+      .from("visitas")
+      .select("id, lead_id, parecer")
+      .eq("id", input.visita_id)
+      .eq("corretor_id", corretor.id)
+      .maybeSingle();
+
+    if (visitaError || !visita || visita.lead_id !== leadId) {
+      return { error: "Visita não encontrada." };
+    }
+
+    if (!visita.parecer) {
+      return { error: MSG_PROPOSTA_SEM_PARECER };
+    }
+  }
 
   const { data, error } = await supabase
     .from("propostas")
@@ -1473,6 +1665,64 @@ export async function createProposta(
 
   revalidateAtendimentoPaths(leadId);
   return { success: true, id: data.id, message: "Proposta registrada." };
+}
+
+export interface UpdatePropostaInput {
+  valor_proposto: number;
+  observacoes: string;
+}
+
+export async function updateProposta(
+  propostaId: string,
+  input: UpdatePropostaInput,
+): Promise<AtendimentoActionResult> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) return { error: "Sessão expirada." };
+
+  const observacoes = input.observacoes.trim();
+  if (!observacoes) {
+    return { error: "Informe os detalhes da proposta." };
+  }
+  if (!Number.isFinite(input.valor_proposto) || input.valor_proposto <= 0) {
+    return { error: "Informe um valor válido para a proposta." };
+  }
+
+  const supabase = await createClient();
+  const { data: proposta, error: buscaError } = await supabase
+    .from("propostas")
+    .select("id, lead_id, status")
+    .eq("id", propostaId)
+    .eq("corretor_id", corretor.id)
+    .maybeSingle();
+
+  if (buscaError || !proposta) return { error: "Proposta não encontrada." };
+  if (proposta.status === "cancelada") {
+    return { error: "Não é possível editar uma proposta cancelada." };
+  }
+
+  const { error } = await supabase
+    .from("propostas")
+    .update({
+      valor_proposto: input.valor_proposto,
+      observacoes,
+    })
+    .eq("id", propostaId);
+
+  if (error) return { error: "Não foi possível atualizar a proposta." };
+
+  const leadId = proposta.lead_id as string;
+  await registrarInteracao(
+    leadId,
+    "proposta",
+    `Proposta atualizada: R$ ${input.valor_proposto.toLocaleString("pt-BR")}.`,
+  );
+  await registrarAuditoria(leadId, "proposta_atualizada", {
+    proposta_id: propostaId,
+    valor: input.valor_proposto,
+  });
+
+  revalidateAtendimentoPaths(leadId);
+  return { success: true, message: "Proposta atualizada." };
 }
 
 export async function updatePropostaStatus(
@@ -1529,22 +1779,6 @@ export async function deleteProposta(propostaId: string): Promise<AtendimentoAct
 
   if (!proposta) return { error: "Proposta não encontrada." };
 
-  if (proposta.status !== "cancelada") {
-    const { error } = await supabase
-      .from("propostas")
-      .update({ status: "cancelada" })
-      .eq("id", propostaId);
-
-    if (error) return { error: "Não foi possível cancelar a proposta." };
-
-    await registrarInteracao(proposta.lead_id as string, "proposta", "Proposta cancelada.");
-    await registrarAuditoria(proposta.lead_id as string, "proposta_cancelada", {
-      proposta_id: propostaId,
-    });
-    revalidateAtendimentoPaths(proposta.lead_id as string);
-    return { success: true, message: "Proposta cancelada." };
-  }
-
   const { error } = await supabase.from("propostas").delete().eq("id", propostaId);
   if (error) return { error: "Não foi possível excluir." };
 
@@ -1553,17 +1787,23 @@ export async function deleteProposta(propostaId: string): Promise<AtendimentoAct
   return { success: true, message: "Proposta excluída." };
 }
 
-export interface CreateNegocioInput {
-  imovel_id: string;
-  proposta_id?: string;
-  perfil_id?: string;
-  valor_fechamento: number;
-  valor_comissao?: number;
-  percentual_comissao?: number;
-  data_fechamento: string;
-  data_prevista_comissao?: string;
-  forma_pagamento?: string;
-  observacoes?: string;
+export type { CreateNegocioInput } from "@/lib/negocios/types";
+
+function validarFinanciamentoNegocio(input: CreateNegocioInput): string | null {
+  if (input.forma_pagamento !== "financiado") return null;
+
+  const total =
+    (input.valor_recursos_proprios ?? 0) +
+    (input.valor_financiado ?? 0) +
+    (input.valor_fgts ?? 0);
+  const esperado = Math.round(input.valor_fechamento * 100) / 100;
+  const soma = Math.round(total * 100) / 100;
+
+  if (soma !== esperado) {
+    return "A soma dos valores de financiamento deve ser igual ao valor do negócio.";
+  }
+
+  return null;
 }
 
 export async function createNegocio(
@@ -1573,37 +1813,60 @@ export async function createNegocio(
   const corretor = await getCorretorForUser();
   if (!corretor) return { error: "Sessão expirada." };
 
+  if (!Number.isFinite(input.valor_fechamento) || input.valor_fechamento <= 0) {
+    return { error: "Informe um valor válido para o negócio." };
+  }
+
+  const erroFinanciamento = validarFinanciamentoNegocio(input);
+  if (erroFinanciamento) return { error: erroFinanciamento };
+
   const supabase = await createClient();
+
+  if (input.proposta_id) {
+    const { data: proposta, error: propostaError } = await supabase
+      .from("propostas")
+      .select("id, lead_id, status")
+      .eq("id", input.proposta_id)
+      .eq("corretor_id", corretor.id)
+      .maybeSingle();
+
+    if (propostaError || !proposta || proposta.lead_id !== leadId) {
+      return { error: "Proposta não encontrada." };
+    }
+
+    if (proposta.status !== "aceita") {
+      return { error: MSG_NEGOCIO_PROPOSTA_NAO_ACEITA };
+    }
+  }
+
+  const camposCompletos = await negociosTemCamposCompletos(supabase);
+  const row = buildNegocioRow(
+    input,
+    { corretor_id: corretor.id, lead_id: leadId, status: "fechado" },
+    camposCompletos,
+  );
+
+  if (!camposCompletos) {
+    console.warn(
+      "[createNegocio] Migration 20260718200000_negocios_completo pendente — rateio/financiamento salvos em observações.",
+    );
+  }
 
   const { data, error } = await supabase
     .from("negocios")
-    .insert({
-      corretor_id: corretor.id,
-      lead_id: leadId,
-      imovel_id: input.imovel_id,
-      proposta_id: input.proposta_id ?? null,
-      perfil_id: input.perfil_id ?? null,
-      valor_fechamento: input.valor_fechamento,
-      valor_comissao: input.valor_comissao ?? null,
-      percentual_comissao: input.percentual_comissao ?? null,
-      data_fechamento: input.data_fechamento,
-      data_prevista_comissao: input.data_prevista_comissao ?? null,
-      forma_pagamento: input.forma_pagamento ?? null,
-      observacoes: input.observacoes?.trim() || null,
-      status: "fechado",
-    })
+    .insert(row)
     .select("id")
     .single();
 
   if (error || !data) {
-    console.error("[createNegocio]", error);
+    logSupabaseError("createNegocio", error);
     return { error: "Não foi possível registrar o negócio." };
   }
 
   await supabase
     .from("leads")
     .update({
-      etapa: "fechado",
+      etapa: "venda",
       situacao: "negocio_fechado",
       atualizado_em: new Date().toISOString(),
     })
@@ -1632,7 +1895,164 @@ export async function createNegocio(
   }
 
   revalidateAtendimentoPaths(leadId);
+  revalidatePath("/dashboard/imoveis");
   return { success: true, id: data.id, message: "Negócio fechado registrado." };
+}
+
+export async function updateNegocio(
+  negocioId: string,
+  input: CreateNegocioInput,
+): Promise<AtendimentoActionResult> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) return { error: "Sessão expirada." };
+
+  if (!Number.isFinite(input.valor_fechamento) || input.valor_fechamento <= 0) {
+    return { error: "Informe um valor válido para o negócio." };
+  }
+
+  const erroFinanciamento = validarFinanciamentoNegocio(input);
+  if (erroFinanciamento) return { error: erroFinanciamento };
+
+  const supabase = await createClient();
+  const { data: negocio, error: buscaError } = await supabase
+    .from("negocios")
+    .select("id, lead_id, status")
+    .eq("id", negocioId)
+    .eq("corretor_id", corretor.id)
+    .maybeSingle();
+
+  if (buscaError || !negocio) return { error: "Negociação não encontrada." };
+  if (negocio.status === "cancelado") {
+    return { error: "Não é possível editar uma negociação cancelada." };
+  }
+
+  const camposCompletos = await negociosTemCamposCompletos(supabase);
+  const row = buildNegocioRow(input, {}, camposCompletos);
+
+  if (!camposCompletos) {
+    console.warn(
+      "[updateNegocio] Migration 20260718200000_negocios_completo pendente — rateio/financiamento salvos em observações.",
+    );
+  }
+
+  const { error } = await supabase.from("negocios").update(row).eq("id", negocioId);
+
+  if (error) {
+    logSupabaseError("updateNegocio", error);
+    return { error: "Não foi possível atualizar a negociação." };
+  }
+
+  const leadId = negocio.lead_id as string;
+  await registrarInteracao(leadId, "anotacao", "Negociação atualizada.");
+  await registrarAuditoria(leadId, "negocio_atualizado", {
+    negocio_id: negocioId,
+    valor: input.valor_fechamento,
+  });
+
+  revalidateAtendimentoPaths(leadId);
+  revalidatePath("/dashboard/imoveis");
+  return { success: true, message: "Negociação atualizada." };
+}
+
+export async function cancelarNegocio(negocioId: string): Promise<AtendimentoActionResult> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) return { error: "Sessão expirada." };
+
+  const supabase = await createClient();
+  const { data: negocio, error: buscaError } = await supabase
+    .from("negocios")
+    .select("id, lead_id, imovel_id, status")
+    .eq("id", negocioId)
+    .eq("corretor_id", corretor.id)
+    .maybeSingle();
+
+  if (buscaError || !negocio) return { error: "Negociação não encontrada." };
+  if (negocio.status === "cancelado") {
+    return { error: "Esta negociação já está cancelada." };
+  }
+
+  const { error } = await supabase
+    .from("negocios")
+    .update({ status: "cancelado" })
+    .eq("id", negocioId);
+
+  if (error) return { error: "Não foi possível cancelar a negociação." };
+
+  const leadId = negocio.lead_id as string;
+
+  await supabase
+    .from("leads")
+    .update({
+      situacao: "em_atendimento",
+      etapa: "proposta",
+      atualizado_em: new Date().toISOString(),
+    })
+    .eq("id", leadId)
+    .eq("corretor_id", corretor.id);
+
+  if (negocio.imovel_id) {
+    await atualizarStatusImovelAutomatico(
+      negocio.imovel_id as string,
+      "Disponível",
+      "Negociação cancelada no atendimento",
+      { negocio_id: negocioId, lead_id: leadId },
+    );
+  }
+
+  await registrarInteracao(leadId, "anotacao", "Negociação cancelada.");
+  await registrarAuditoria(leadId, "negocio_cancelado", { negocio_id: negocioId });
+
+  revalidateAtendimentoPaths(leadId);
+  revalidatePath("/dashboard/imoveis");
+  return { success: true, message: "Negociação cancelada." };
+}
+
+export async function deleteNegocio(negocioId: string): Promise<AtendimentoActionResult> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) return { error: "Sessão expirada." };
+
+  const supabase = await createClient();
+  const { data: negocio } = await supabase
+    .from("negocios")
+    .select("lead_id, imovel_id, status")
+    .eq("id", negocioId)
+    .eq("corretor_id", corretor.id)
+    .maybeSingle();
+
+  if (!negocio) return { error: "Negociação não encontrada." };
+
+  const { error } = await supabase.from("negocios").delete().eq("id", negocioId);
+  if (error) return { error: "Não foi possível excluir a negociação." };
+
+  const leadId = negocio.lead_id as string;
+
+  if (negocio.status === "fechado") {
+    await supabase
+      .from("leads")
+      .update({
+        situacao: "em_atendimento",
+        etapa: "proposta",
+        atualizado_em: new Date().toISOString(),
+      })
+      .eq("id", leadId)
+      .eq("corretor_id", corretor.id);
+
+    if (negocio.imovel_id) {
+      await atualizarStatusImovelAutomatico(
+        negocio.imovel_id as string,
+        "Disponível",
+        "Negociação excluída no atendimento",
+        { negocio_id: negocioId, lead_id: leadId },
+      );
+    }
+  }
+
+  await registrarInteracao(leadId, "anotacao", "Negociação excluída.");
+  await registrarAuditoria(leadId, "negocio_excluido", { negocio_id: negocioId });
+
+  revalidateAtendimentoPaths(leadId);
+  revalidatePath("/dashboard/imoveis");
+  return { success: true, message: "Negociação excluída." };
 }
 
 export async function marcarNegocioPerdido(leadId: string): Promise<AtendimentoActionResult> {
@@ -1682,24 +2102,78 @@ export async function selecionarImovel(
   if (!corretor) return { error: "Sessão expirada." };
 
   const supabase = await createClient();
-  const token = randomBytes(32).toString("hex");
+
+  const { data: existente, error: existenteError } = await supabase
+    .from("lead_imoveis_selecionados")
+    .select("id, token_compartilhamento")
+    .eq("lead_id", leadId)
+    .eq("imovel_id", imovelId)
+    .eq("corretor_id", corretor.id)
+    .maybeSingle();
+
+  if (existenteError) {
+    console.error("[selecionarImovel]", {
+      message: existenteError.message,
+      code: existenteError.code,
+      details: existenteError.details,
+      hint: existenteError.hint,
+    });
+    return { error: "Não foi possível selecionar o imóvel." };
+  }
+
+  if (existente) {
+    revalidateAtendimentoPaths(leadId);
+    return {
+      success: true,
+      token: existente.token_compartilhamento as string,
+      message: "Imóvel já estava selecionado.",
+    };
+  }
+
+  const token = randomUUID();
 
   const { data, error } = await supabase
     .from("lead_imoveis_selecionados")
-    .upsert(
-      {
-        lead_id: leadId,
-        imovel_id: imovelId,
-        corretor_id: corretor.id,
-        token_compartilhamento: token,
-      },
-      { onConflict: "lead_id,imovel_id" },
-    )
+    .insert({
+      lead_id: leadId,
+      imovel_id: imovelId,
+      corretor_id: corretor.id,
+      token_compartilhamento: token,
+    })
     .select("token_compartilhamento")
     .single();
 
-  if (error || !data) {
-    console.error("[selecionarImovel]", error);
+  if (error) {
+    console.error("[selecionarImovel]", {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    });
+
+    if (error.code === "23505") {
+      const { data: conflito } = await supabase
+        .from("lead_imoveis_selecionados")
+        .select("token_compartilhamento")
+        .eq("lead_id", leadId)
+        .eq("imovel_id", imovelId)
+        .eq("corretor_id", corretor.id)
+        .maybeSingle();
+
+      if (conflito) {
+        revalidateAtendimentoPaths(leadId);
+        return {
+          success: true,
+          token: conflito.token_compartilhamento as string,
+          message: "Imóvel já estava selecionado.",
+        };
+      }
+    }
+
+    return { error: "Não foi possível selecionar o imóvel." };
+  }
+
+  if (!data) {
     return { error: "Não foi possível selecionar o imóvel." };
   }
 
@@ -1727,6 +2201,7 @@ export async function removerImovelSelecionado(
   if (!corretor) return { error: "Sessão expirada." };
 
   const supabase = await createClient();
+
   const { error } = await supabase
     .from("lead_imoveis_selecionados")
     .delete()
@@ -1747,12 +2222,99 @@ export async function qualificarLead(leadId: string): Promise<AtendimentoActionR
   if (!corretor) return { error: "Sessão expirada." };
 
   const supabase = await createClient();
-  await avancarEtapaLead(leadId, "qualificado", supabase, corretor.id, false);
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("observacoes, etapa")
+    .eq("id", leadId)
+    .eq("corretor_id", corretor.id)
+    .maybeSingle();
+
+  if (!lead) return { error: "Atendimento não encontrado." };
+
+  const observacoes = mergeLeadObservacoesMeta(lead.observacoes as string | null, {
+    qualificado: true,
+  });
+
+  const payload: Record<string, unknown> = {
+    observacoes,
+    atualizado_em: new Date().toISOString(),
+  };
+
+  if (lead.etapa === "novo") {
+    payload.etapa = "contato_feito";
+  }
+
+  const { error } = await supabase
+    .from("leads")
+    .update(payload)
+    .eq("id", leadId)
+    .eq("corretor_id", corretor.id);
+
+  if (error) {
+    console.error("[qualificarLead]", {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    });
+    return { error: "Não foi possível qualificar." };
+  }
+
   await registrarInteracao(leadId, "anotacao", "Lead qualificado.");
   await registrarAuditoria(leadId, "lead_qualificado", {});
 
   revalidateAtendimentoPaths(leadId);
   return { success: true, message: "Lead qualificado." };
+}
+
+export async function desqualificarLead(leadId: string): Promise<AtendimentoActionResult> {
+  const corretor = await getCorretorForUser();
+  if (!corretor) return { error: "Sessão expirada." };
+
+  const supabase = await createClient();
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("observacoes, etapa")
+    .eq("id", leadId)
+    .eq("corretor_id", corretor.id)
+    .maybeSingle();
+
+  if (!lead) return { error: "Atendimento não encontrado." };
+
+  const observacoes = mergeLeadObservacoesMeta(lead.observacoes as string | null, {
+    qualificado: false,
+  });
+
+  const payload: Record<string, unknown> = {
+    observacoes,
+    atualizado_em: new Date().toISOString(),
+  };
+
+  if (lead.etapa === "qualificado") {
+    payload.etapa = "contato_feito";
+  }
+
+  const { error } = await supabase
+    .from("leads")
+    .update(payload)
+    .eq("id", leadId)
+    .eq("corretor_id", corretor.id);
+
+  if (error) {
+    console.error("[desqualificarLead]", {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    });
+    return { error: "Não foi possível remover a qualificação." };
+  }
+
+  await registrarInteracao(leadId, "anotacao", "Qualificação removida.");
+  await registrarAuditoria(leadId, "lead_desqualificado", {});
+
+  revalidateAtendimentoPaths(leadId);
+  return { success: true, message: "Qualificação removida." };
 }
 
 export async function marcarContatoFeito(leadId: string): Promise<AtendimentoActionResult> {
@@ -1810,15 +2372,15 @@ export async function addInteracaoFutura(
   const corretor = await getCorretorForUser();
   if (!corretor) return { error: "Sessão expirada." };
 
-  const dataAtividade = new Date(input.data);
-  if (dataAtividade > new Date()) {
+  const dataAtividade = parseLocalDateTimeInput(input.data);
+  if (new Date(dataAtividade) > new Date()) {
     await criarAgendaFutura({
       corretorId: corretor.id,
       leadId,
       tipo: input.tipo,
       titulo: input.titulo ?? input.tipo,
       descricao: input.descricao,
-      dataAtividade: input.data,
+      dataAtividade,
     });
     await registrarAuditoria(leadId, "agenda_criada", { tipo: input.tipo });
     revalidateAtendimentoPaths(leadId);
@@ -1829,7 +2391,7 @@ export async function addInteracaoFutura(
   return addInteracao(leadId, {
     tipo: input.tipo as TipoInteracao,
     descricao: input.descricao,
-    data: input.data,
+    data: dataAtividade,
   });
 }
 

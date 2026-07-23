@@ -300,12 +300,12 @@ BEGIN
   INSERT INTO public.visitas (
     id, corretor_id, lead_id, imovel_id, data_visita, status, parecer, vai_gerar_proposta, observacoes, criado_em
   ) VALUES
-    (v_visita_ids[1], v_corretor_id, v_lead_ids[16], v_imovel_ids[1],  '2026-06-05 10:00:00-03', 'realizada', 'positivo', true,  'Gostou da localização e do apartamento.', NOW() - INTERVAL '27 days'),
+    (v_visita_ids[1], v_corretor_id, v_lead_ids[16], v_imovel_ids[1],  '2026-06-05 10:00:00-03', 'realizada', 'positivo', 'sim',  'Gostou da localização e do apartamento.', NOW() - INTERVAL '27 days'),
     (v_visita_ids[2], v_corretor_id, v_lead_ids[17], v_imovel_ids[13], '2026-06-12 14:30:00-03', 'realizada', 'neutro',   NULL,  'Achou a casa grande demais.', NOW() - INTERVAL '25 days'),
-    (v_visita_ids[3], v_corretor_id, v_lead_ids[18], v_imovel_ids[15], '2026-06-18 09:00:00-03', 'realizada', 'negativo', false, 'Valor do condomínio acima do orçamento.', NOW() - INTERVAL '23 days'),
+    (v_visita_ids[3], v_corretor_id, v_lead_ids[18], v_imovel_ids[15], '2026-06-18 09:00:00-03', 'realizada', 'negativo', 'nao', 'Valor do condomínio acima do orçamento.', NOW() - INTERVAL '23 days'),
     (v_visita_ids[4], v_corretor_id, v_lead_ids[19], v_imovel_ids[17], '2026-06-22 16:00:00-03', 'cancelada', NULL,       NULL,    'Lead cancelou por imprevisto.', NOW() - INTERVAL '21 days'),
-    (v_visita_ids[5], v_corretor_id, v_lead_ids[20], v_imovel_ids[9],  '2026-06-25 11:00:00-03', 'realizada', 'positivo', true,  'Encantado com a cobertura.', NOW() - INTERVAL '19 days'),
-    (v_visita_ids[6], v_corretor_id, v_lead_ids[21], v_imovel_ids[14], '2026-06-28 15:30:00-03', 'realizada', 'positivo', true,  'Quer fazer proposta.', NOW() - INTERVAL '17 days'),
+    (v_visita_ids[5], v_corretor_id, v_lead_ids[20], v_imovel_ids[9],  '2026-06-25 11:00:00-03', 'realizada', 'positivo', 'sim',  'Encantado com a cobertura.', NOW() - INTERVAL '19 days'),
+    (v_visita_ids[6], v_corretor_id, v_lead_ids[21], v_imovel_ids[14], '2026-06-28 15:30:00-03', 'realizada', 'positivo', 'sim',  'Quer fazer proposta.', NOW() - INTERVAL '17 days'),
     (v_visita_ids[7], v_corretor_id, v_lead_ids[11], v_imovel_ids[3],  '2026-07-03 10:30:00-03', 'agendada',  NULL,       NULL,    'Visita confirmada por WhatsApp.', NOW() - INTERVAL '5 days'),
     (v_visita_ids[8], v_corretor_id, v_lead_ids[6],  v_imovel_ids[16], '2026-07-08 14:00:00-03', 'agendada',  NULL,       NULL,    'Aguardando confirmação final.', NOW() - INTERVAL '3 days'),
     (v_visita_ids[9], v_corretor_id, v_lead_ids[13], v_imovel_ids[6],  '2026-07-12 09:30:00-03', 'agendada',  NULL,       NULL,    'Visita mansão Belvedere.', NOW() - INTERVAL '2 days'),

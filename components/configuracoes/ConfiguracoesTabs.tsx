@@ -1,6 +1,7 @@
 "use client";
 
 import { AbaAtendimentosConfig } from "@/components/configuracoes/AbaAtendimentosConfig";
+import { AbaExportarDados } from "@/components/configuracoes/AbaExportarDados";
 import { AbaEquipe } from "@/components/configuracoes/AbaEquipe";
 import { AbaImoveisConfig } from "@/components/configuracoes/AbaImoveisConfig";
 import { AbaPerfil } from "@/components/configuracoes/AbaPerfil";
@@ -10,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { AgenteConfigPublic } from "@/lib/actions/agente-config";
 import type {
   AtendimentoConfig,
+  ConfigFichaVisita,
   Corretor,
   DashboardConfig,
   MarcaDaguaConfig,
@@ -33,9 +35,11 @@ interface ConfiguracoesTabsProps {
   marcaDaguaConfig: MarcaDaguaConfig | null;
   dashboardConfig: DashboardConfig;
   atendimentoConfig: AtendimentoConfig | null;
+  fichaVisitaConfig: ConfigFichaVisita | null;
   motivosDescarte: MotivoDescarte[];
   motivosDesativacao: MotivoDesativacao[];
   initialTab?: string;
+  canManageEquipe?: boolean;
 }
 
 export function ConfiguracoesTabs({
@@ -49,21 +53,18 @@ export function ConfiguracoesTabs({
   marcaDaguaConfig,
   dashboardConfig,
   atendimentoConfig,
+  fichaVisitaConfig,
   motivosDescarte,
   motivosDesativacao,
   initialTab = "perfil",
+  canManageEquipe = false,
 }: ConfiguracoesTabsProps) {
-  const tabValues = [
-    "perfil",
-    "whatsapp",
-    "imoveis",
-    "atendimentos",
-    "equipe",
-    "site",
-  ] as const;
-  const defaultTab = tabValues.includes(initialTab as (typeof tabValues)[number])
-    ? initialTab
-    : "perfil";
+  const allTabs = ["perfil", "whatsapp", "imoveis", "atendimentos", "equipe", "site", "exportar"] as const;
+  type TabValue = (typeof allTabs)[number];
+  const tabValues: readonly TabValue[] = canManageEquipe
+    ? allTabs
+    : ["perfil", "whatsapp", "imoveis", "atendimentos", "site", "exportar"];
+  const defaultTab = tabValues.includes(initialTab as TabValue) ? initialTab : "perfil";
 
   return (
     <Tabs defaultValue={defaultTab} className="w-full">
@@ -72,8 +73,9 @@ export function ConfiguracoesTabs({
         <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
         <TabsTrigger value="imoveis">Imóveis</TabsTrigger>
         <TabsTrigger value="atendimentos">Atendimentos</TabsTrigger>
-        <TabsTrigger value="equipe">Equipe</TabsTrigger>
+        {canManageEquipe ? <TabsTrigger value="equipe">Equipe</TabsTrigger> : null}
         <TabsTrigger value="site">Meu site</TabsTrigger>
+        <TabsTrigger value="exportar">Exportar meus dados</TabsTrigger>
       </TabsList>
 
       <TabsContent value="perfil">
@@ -89,7 +91,7 @@ export function ConfiguracoesTabs({
           tiposImovel={tiposImovel}
           statusImovel={statusImovel}
           marcaDaguaConfig={marcaDaguaConfig}
-          atendimentoConfig={atendimentoConfig}
+          fichaVisitaConfig={fichaVisitaConfig}
           motivosDesativacao={motivosDesativacao}
         />
       </TabsContent>
@@ -103,12 +105,18 @@ export function ConfiguracoesTabs({
         />
       </TabsContent>
 
-      <TabsContent value="equipe">
-        <AbaEquipe perfis={perfisEquipe} adminPrincipalUserId={corretor.user_id} />
-      </TabsContent>
+      {canManageEquipe ? (
+        <TabsContent value="equipe">
+          <AbaEquipe perfis={perfisEquipe} corretor={corretor} />
+        </TabsContent>
+      ) : null}
 
       <TabsContent value="site">
         <AbaSite corretor={corretor} />
+      </TabsContent>
+
+      <TabsContent value="exportar">
+        <AbaExportarDados />
       </TabsContent>
     </Tabs>
   );

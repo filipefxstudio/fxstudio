@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
 import {
   Bath,
   BedDouble,
@@ -29,7 +30,14 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { labelStatusAprovacao } from "@/lib/imoveis/aprovacao";
+import { toast } from "@/hooks/use-toast";
+import { aprovarImovel, reprovarImovel } from "@/lib/actions/imoveis";
+import { labelStatusAprovacao, podeAprovarImovel } from "@/lib/imoveis/aprovacao";
+import {
+  getCaptadorNome,
+  getCaptadorPrincipalNome,
+  getCaptadoresLista,
+} from "@/lib/imoveis/captador";
 import { getImovelCodigo } from "@/lib/imoveis/format";
 import { getPublicImovelShareUrlClient } from "@/lib/imoveis/share-url";
 import { buildTelLinkLocal, buildWhatsAppLink } from "@/lib/imoveis/telefone";
@@ -40,7 +48,7 @@ import {
   getTipoLabel,
   getValorExibicao,
 } from "@/lib/site/format";
-import type { AuditoriaImovel, Imovel, ImovelDesempenho, StatusImovel } from "@/types";
+import type { AuditoriaImovel, Imovel, ImovelDesempenho, Perfil, StatusImovel } from "@/types";
 
 interface ImovelDetalhesProps {
   imovel: Imovel;
@@ -48,6 +56,7 @@ interface ImovelDetalhesProps {
   statusList: StatusImovel[];
   auditoria: AuditoriaImovel[];
   desempenho: ImovelDesempenho | null;
+  perfil?: Perfil | null;
 }
 
 function formatDate(value: string | null | undefined): string {
@@ -76,8 +85,14 @@ export function ImovelDetalhes({
   statusList,
   auditoria,
   desempenho,
+  perfil = null,
 }: ImovelDetalhesProps) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
   const [imovel, setImovel] = useState(initialImovel);
+
+  const canApprove =
+    podeAprovarImovel(perfil) && imovel.status_aprovacao === "aguardando_aprovacao";
 
   const titulo = imovel.titulo ?? "Sem título";
   const codigo = getImovelCodigo(imovel);
@@ -86,7 +101,8 @@ export function ImovelDetalhes({
   const diferenciais = imovel.diferenciais ?? [];
   const hasMap = imovel.latitude != null && imovel.longitude != null;
   const cliente = imovel.cliente;
-  const captador = imovel.captador;
+  const captadores = getCaptadoresLista(imovel);
+  const captadorNome = getCaptadorPrincipalNome(imovel);
   const cadastradoPor = imovel.cadastrado_por;
   const telLink = buildTelLinkLocal(cliente?.telefone);
   const waLink = buildWhatsAppLink(cliente?.telefone);
@@ -97,6 +113,44 @@ export function ImovelDetalhes({
   const infoAdicional = INFO_ADICIONAL_FIELDS.filter(
     (field) => imovel[field.key] === true,
   );
+
+  function handleAprovar() {
+    startTransition(async () => {
+      const result = await aprovarImovel(imovel.id);
+      if (result.error) {
+        toast({ variant: "destructive", title: "Erro", description: result.error });
+        return;
+      }
+
+      toast({ title: "Imóvel aprovado." });
+      setImovel((prev) => ({
+        ...prev,
+        status_aprovacao: "aprovado",
+        status: "disponivel",
+        status_imovel: statusList.find((item) => item.nome === "Disponível") ?? prev.status_imovel,
+      }));
+      router.refresh();
+    });
+  }
+
+  function handleReprovar() {
+    startTransition(async () => {
+      const result = await reprovarImovel(imovel.id);
+      if (result.error) {
+        toast({ variant: "destructive", title: "Erro", description: result.error });
+        return;
+      }
+
+      toast({ title: "Imóvel reprovado. Retornou para cadastro." });
+      setImovel((prev) => ({
+        ...prev,
+        status_aprovacao: "em_cadastro",
+        status: "em_cadastro",
+        status_imovel: statusList.find((item) => item.nome === "Em cadastro") ?? prev.status_imovel,
+      }));
+      router.refresh();
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -119,10 +173,28 @@ export function ImovelDetalhes({
           ) : null}
         </div>
 
-        <ImovelAcoesDropdown
+        <div className="flex flex-wrap items-center gap-2">
+          {canApprove ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isPending}
+                onClick={handleReprovar}
+              >
+                Reprovar
+              </Button>
+              <Button type="button" disabled={isPending} onClick={handleAprovar}>
+                Aprovar
+              </Button>
+            </>
+          ) : null}
+
+          <ImovelAcoesDropdown
           imovel={imovel}
           corretorSlug={corretorSlug}
           statusList={statusList}
+          perfil={perfil}
           variant="header"
           onValidarAtualizacao={(data) =>
             setImovel((prev) => ({ ...prev, data_ultima_atualizacao: data }))
@@ -135,7 +207,24 @@ export function ImovelDetalhes({
               status_imovel: status ?? prev.status_imovel,
             }));
           }}
+          onAprovar={() =>
+            setImovel((prev) => ({
+              ...prev,
+              status_aprovacao: "aprovado",
+              status: "disponivel",
+              status_imovel: statusList.find((item) => item.nome === "Disponível") ?? prev.status_imovel,
+            }))
+          }
+          onReprovar={() =>
+            setImovel((prev) => ({
+              ...prev,
+              status_aprovacao: "em_cadastro",
+              status: "em_cadastro",
+              status_imovel: statusList.find((item) => item.nome === "Em cadastro") ?? prev.status_imovel,
+            }))
+          }
         />
+        </div>
       </div>
 
       <ImovelGaleriaDetalhes fotos={fotos} titulo={titulo} />
@@ -355,18 +444,38 @@ export function ImovelDetalhes({
 
             <Card>
               <CardHeader>
-                <CardTitle>Captador</CardTitle>
+                <CardTitle>
+                  {captadores.length > 1 ? "Captadores" : "Captador"}
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                {captador ? (
+                {captadores.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Captador não informado.</p>
+                ) : captadores.length === 1 ? (
                   <div>
-                    <p className="font-medium">{captador.nome}</p>
-                    {captador.email ? (
-                      <p className="text-sm text-muted-foreground">{captador.email}</p>
+                    <p className="font-medium">{getCaptadorNome(captadores[0])}</p>
+                    {captadores[0].nome_externo ? null : captadores[0].perfil?.email ? (
+                      <p className="text-sm text-muted-foreground">{captadores[0].perfil.email}</p>
                     ) : null}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">Captador não informado.</p>
+                  <ul className="space-y-3">
+                    {captadores.map((captador) => (
+                      <li key={captador.id}>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium">{getCaptadorNome(captador)}</p>
+                          {captador.principal ? (
+                            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                              Principal
+                            </span>
+                          ) : null}
+                        </div>
+                        {!captador.nome_externo && captador.perfil?.email ? (
+                          <p className="text-sm text-muted-foreground">{captador.perfil.email}</p>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </CardContent>
             </Card>
@@ -380,7 +489,7 @@ export function ImovelDetalhes({
               <dl className="grid gap-2 text-sm sm:grid-cols-2">
                 <div>
                   <dt className="text-muted-foreground">Captador</dt>
-                  <dd className="font-medium">{captador?.nome ?? "—"}</dd>
+                  <dd className="font-medium">{captadorNome ?? "—"}</dd>
                 </div>
                 <div>
                   <dt className="text-muted-foreground">Cadastrado por</dt>

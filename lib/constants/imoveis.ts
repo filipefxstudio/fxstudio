@@ -15,10 +15,13 @@ export const FINALIDADES_IMOVEL: { value: FinalidadeImovel; label: string }[] = 
 ];
 
 export const STATUS_IMOVEL: { value: StatusImovelSlug; label: string }[] = [
+  { value: "em_cadastro", label: "Em cadastro" },
+  { value: "aguardando_aprovacao", label: "Aguardando aprovação" },
   { value: "disponivel", label: "Disponível" },
   { value: "reservado", label: "Reservado" },
   { value: "vendido", label: "Vendido" },
   { value: "locado", label: "Locado" },
+  { value: "desativado", label: "Desativado" },
 ];
 
 export const DIFERENCIAIS_OPCOES = [
@@ -69,12 +72,16 @@ export const MARCA_DAGUA_POSICOES = [
 ] as const;
 
 export const STATUS_NOME_TO_SLUG: Record<string, StatusImovelSlug> = {
+  "Em cadastro": "em_cadastro",
+  "Aguardando aprovação": "aguardando_aprovacao",
   Disponível: "disponivel",
   Reservado: "reservado",
   Vendido: "vendido",
   Locado: "locado",
   Desativado: "desativado",
 };
+
+export const STATUS_IMOVEL_WORKFLOW = ["Em cadastro", "Aguardando aprovação"] as const;
 
 export const DESTINACOES_IMOVEL = [
   { value: "residencial" as const, label: "Residencial" },
@@ -97,8 +104,13 @@ export const MOTIVOS_DESATIVACAO = [
   "Outro",
 ] as const;
 
-/** Status alterados automaticamente pelo sistema (proposta/negócio) */
-export const STATUS_IMOVEL_SISTEMA = ["Reservado", "Vendido", "Locado"] as const;
+/** Status alterados automaticamente pelo sistema (fluxo de cadastro, proposta/negócio) */
+export const STATUS_IMOVEL_SISTEMA = [
+  ...STATUS_IMOVEL_WORKFLOW,
+  "Reservado",
+  "Vendido",
+  "Locado",
+] as const;
 
 export const COMPLEMENTO_TIPOS = [
   { value: "apartamento", label: "Apartamento" },

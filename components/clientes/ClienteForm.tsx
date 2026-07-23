@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { PessoaDuplicidadeAviso } from "@/components/pessoas/PessoaAutocomplete";
 import { createCliente, updateCliente } from "@/lib/actions/clientes";
 import {
   clienteFormDefaultValues,
@@ -53,16 +54,21 @@ export function ClienteForm({ mode, cliente, onSuccess }: ClienteFormProps) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [duplicidadeAtiva, setDuplicidadeAtiva] = useState(false);
 
   const {
     register,
     control,
     handleSubmit,
+    watch,
     formState: { errors },
   } = useForm<ClienteFormValues>({
     resolver: zodResolver(clienteFormSchema) as Resolver<ClienteFormValues>,
     defaultValues: mode === "edit" && cliente ? toFormValues(cliente) : clienteFormDefaultValues,
   });
+
+  const telefoneWatch = watch("telefone");
+  const emailWatch = watch("email");
 
   function onSubmit(values: ClienteFormValues) {
     setError(null);
@@ -90,7 +96,7 @@ export function ClienteForm({ mode, cliente, onSuccess }: ClienteFormProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{mode === "edit" ? "Editar cliente" : "Novo cliente"}</CardTitle>
+        <CardTitle>{mode === "edit" ? "Editar pessoa" : "Nova pessoa"}</CardTitle>
         <CardDescription>
           Cadastre leads, proprietários ou ambos em um único lugar.
         </CardDescription>
@@ -124,6 +130,13 @@ export function ClienteForm({ mode, cliente, onSuccess }: ClienteFormProps) {
               <Input id="cpf" {...register("cpf")} />
             </div>
           </div>
+
+          <PessoaDuplicidadeAviso
+            telefone={telefoneWatch ?? ""}
+            email={emailWatch ?? ""}
+            clienteIdIgnorar={mode === "edit" ? cliente?.id : undefined}
+            onDuplicidadeChange={(duplicado) => setDuplicidadeAtiva(duplicado)}
+          />
 
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-2">
@@ -188,7 +201,7 @@ export function ClienteForm({ mode, cliente, onSuccess }: ClienteFormProps) {
             </p>
           ) : null}
 
-          <Button type="submit" disabled={isPending}>
+          <Button type="submit" disabled={isPending || duplicidadeAtiva}>
             {isPending ? (
               <>
                 <Loader2 className="animate-spin" data-icon="inline-start" />

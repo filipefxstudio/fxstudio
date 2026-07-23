@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { ImoveisListing } from "@/components/imoveis/ImoveisListing";
-import { getImoveis, getStatusImovelList } from "@/lib/actions/imoveis";
+import { getImoveis, getImoveisWorkflowBadges, getStatusImovelList } from "@/lib/actions/imoveis";
+import { STATUS_IMOVEL } from "@/lib/constants/imoveis";
 import { getCorretorForUser } from "@/lib/supabase/get-corretor";
+import type { StatusImovelSlug } from "@/types";
 
 export const metadata: Metadata = {
   title: "Imóveis | FX Studio",
@@ -24,10 +26,16 @@ export default async function ImoveisPage({
   const params = await searchParams;
   const initialBusca = typeof params.busca === "string" ? params.busca : "";
   const initialBairro = typeof params.bairro === "string" ? params.bairro : "";
+  const statusParam = typeof params.status === "string" ? params.status : "";
+  const validStatusSlugs = new Set(STATUS_IMOVEL.map((item) => item.value));
+  const initialStatusSlug = validStatusSlugs.has(statusParam as StatusImovelSlug)
+    ? (statusParam as StatusImovelSlug)
+    : undefined;
 
-  const [imoveis, statusList] = await Promise.all([
+  const [imoveis, statusList, workflowBadges] = await Promise.all([
     getImoveis(),
     getStatusImovelList(corretor.id),
+    getImoveisWorkflowBadges(),
   ]);
 
   return (
@@ -36,8 +44,10 @@ export default async function ImoveisPage({
         imoveis={imoveis}
         corretorSlug={corretor.slug}
         statusList={statusList}
+        workflowBadges={workflowBadges}
         initialBusca={initialBusca}
         initialBairro={initialBairro}
+        initialStatusSlug={initialStatusSlug}
       />
     </div>
   );

@@ -27,6 +27,7 @@ import {
   createAtendimento,
 } from "@/lib/actions/atendimentos";
 import { FINALIDADE_BUSCA_OPTIONS } from "@/lib/constants/leads";
+import type { NovoAtendimentoPrefill } from "@/lib/atendimentos/novo-prefill";
 import { formatTelefoneBr } from "@/lib/imoveis/telefone";
 import { toast } from "@/hooks/use-toast";
 import type { MidiaOrigem, TipoImovelCustom } from "@/types";
@@ -36,6 +37,7 @@ interface NovoAtendimentoFormProps {
   perfis: { id: string; nome: string }[];
   tiposImovel: TipoImovelCustom[];
   faixaValorPercent: number;
+  prefill?: NovoAtendimentoPrefill;
 }
 
 export function NovoAtendimentoForm({
@@ -43,14 +45,18 @@ export function NovoAtendimentoForm({
   perfis,
   tiposImovel,
   faixaValorPercent,
+  prefill,
 }: NovoAtendimentoFormProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  const [nome, setNome] = useState("");
-  const [telefone, setTelefone] = useState("");
-  const [email, setEmail] = useState("");
+  const [nome, setNome] = useState(prefill?.nome ?? "");
+  const [telefone, setTelefone] = useState(
+    prefill?.telefone ? formatTelefoneBr(prefill.telefone) : "",
+  );
+  const [email, setEmail] = useState(prefill?.email ?? "");
+  const [clienteId, setClienteId] = useState<string | undefined>(prefill?.clienteId);
   const [midiaNome, setMidiaNome] = useState("");
   const [perfilId, setPerfilId] = useState("");
   const [observacoes, setObservacoes] = useState("");
@@ -110,6 +116,7 @@ export function NovoAtendimentoForm({
         nome,
         telefone,
         email: email || undefined,
+        cliente_id: clienteId,
         midia_nome: midiaNome || undefined,
         perfil_id: perfilId || undefined,
         imovel_id: imovelSelecionado?.id,
@@ -151,29 +158,39 @@ export function NovoAtendimentoForm({
         <form onSubmit={handleSubmit} className="space-y-6">
           <section className="space-y-4">
             <h3 className="font-semibold text-primary">Contato</h3>
+            <div className="space-y-2">
+              <Label htmlFor="contato-nome">Nome *</Label>
+              <Input
+                id="contato-nome"
+                value={nome}
+                onChange={(e) => setNome(e.target.value)}
+                required
+                disabled={isPending}
+              />
+            </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="nome">Nome *</Label>
-                <Input id="nome" value={nome} onChange={(e) => setNome(e.target.value)} required />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="telefone">Telefone *</Label>
+                <Label htmlFor="contato-telefone">Telefone *</Label>
                 <Input
-                  id="telefone"
+                  id="contato-telefone"
                   value={telefone}
                   onChange={(e) => setTelefone(formatTelefoneBr(e.target.value))}
                   required
+                  disabled={isPending}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="email">E-mail</Label>
+                <Label htmlFor="contato-email">E-mail</Label>
                 <Input
-                  id="email"
+                  id="contato-email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  disabled={isPending}
                 />
               </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Mídia de origem</Label>
                 <Select value={midiaNome} onValueChange={setMidiaNome}>

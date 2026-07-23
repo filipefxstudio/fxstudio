@@ -13,6 +13,7 @@ export interface LeadObservacoesMeta {
   perfil_id?: string | null;
   perfil_financeiro?: PerfilFinanceiroLead;
   imoveis_indicados?: string[];
+  qualificado?: boolean;
 }
 
 export function parseLeadObservacoes(observacoes: string | null | undefined): {
@@ -56,7 +57,8 @@ export function serializeLeadObservacoes(
   const hasMeta =
     Boolean(meta.perfil_id) ||
     Boolean(meta.perfil_financeiro && Object.keys(meta.perfil_financeiro).length > 0) ||
-    Boolean(meta.imoveis_indicados && meta.imoveis_indicados.length > 0);
+    Boolean(meta.imoveis_indicados && meta.imoveis_indicados.length > 0) ||
+    meta.qualificado === true;
 
   const trimmedTexto = texto.trim();
 

@@ -110,7 +110,7 @@ export function CepInput({
 
   return (
     <div className={cn("space-y-2", className)}>
-      {showLabel ? <Label htmlFor={id}>CEP</Label> : null}
+      {showLabel ? <Label htmlFor={id}>CEP *</Label> : null}
       <div className="relative">
         <Input
           id={id}

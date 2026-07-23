@@ -13,6 +13,7 @@ import {
   LeadsFilters,
   type LeadsFilterState,
 } from "@/components/leads/LeadsFilters";
+import { matchesLeadsFilters } from "@/lib/leads/filters";
 import { LeadsToolbar } from "@/components/leads/LeadsToolbar";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,8 +23,7 @@ import {
   STORAGE_KEY_LEADS_VIEW,
   type LeadsViewMode,
 } from "@/lib/constants/config";
-import { parseLeadObservacoes } from "@/lib/leads/observacoes";
-import { getUltimaAtividadeEm, isLeadAtivo } from "@/lib/leads/format";
+import { isLeadAtivo } from "@/lib/leads/format";
 import { contemNormalizado } from "@/lib/utils/normalizar";
 import type { Lead, MidiaOrigem } from "@/types";
 
@@ -46,42 +46,6 @@ function matchesSearch(lead: Lead, query: string): boolean {
     contemNormalizado(lead.telefone, query) ||
     (digits.length > 0 && telefoneDigits.includes(digits))
   );
-}
-
-function matchesFilters(lead: Lead, filters: LeadsFilterState): boolean {
-  if (!isLeadAtivo(lead)) return false;
-
-  if (filters.temperatura !== "all" && lead.temperatura !== filters.temperatura) {
-    return false;
-  }
-
-  if (filters.etapa !== "all" && lead.etapa !== filters.etapa) {
-    return false;
-  }
-
-  if (filters.finalidade !== "all" && lead.finalidade_busca !== filters.finalidade) {
-    return false;
-  }
-
-  if (filters.origem !== "all") {
-    const match =
-      lead.origem === filters.origem ||
-      lead.origem.toLowerCase() === filters.origem.toLowerCase();
-    if (!match) return false;
-  }
-
-  if (filters.perfilId !== "all") {
-    const { meta } = parseLeadObservacoes(lead.observacoes);
-    if (meta.perfil_id !== filters.perfilId) return false;
-  }
-
-  if (filters.semInteracaoDias !== null) {
-    const limite = new Date();
-    limite.setDate(limite.getDate() - filters.semInteracaoDias);
-    if (new Date(getUltimaAtividadeEm(lead)) > limite) return false;
-  }
-
-  return true;
 }
 
 export function LeadsPage({
@@ -129,9 +93,10 @@ export function LeadsPage({
   const filteredLeads = useMemo(
     () =>
       initialLeads.filter(
-        (lead) => matchesSearch(lead, search) && matchesFilters(lead, filters),
+        (lead) =>
+          matchesSearch(lead, search) && matchesLeadsFilters(lead, filters, viewMode),
       ),
-    [initialLeads, search, filters],
+    [initialLeads, search, filters, viewMode],
   );
 
   const ativosCount = useMemo(

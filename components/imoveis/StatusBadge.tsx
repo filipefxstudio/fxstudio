@@ -3,6 +3,8 @@ import { cn } from "@/lib/utils";
 import type { StatusImovel, StatusImovelSlug } from "@/types";
 
 const STATUS_COLORS: Record<StatusImovelSlug, string> = {
+  em_cadastro: "#94A3B8",
+  aguardando_aprovacao: "#F59E0B",
   disponivel: "#2DC653",
   reservado: "#F18F01",
   vendido: "#1E3A5F",

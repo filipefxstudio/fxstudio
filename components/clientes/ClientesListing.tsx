@@ -78,7 +78,7 @@ export function ClientesListing({ clientes, perfis }: ClientesListingProps) {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-primary">Clientes</h2>
+          <h2 className="text-lg font-semibold text-primary">Pessoas</h2>
           <p className="text-sm text-muted-foreground">
             {clientes.length} {clientes.length === 1 ? "pessoa cadastrada" : "pessoas cadastradas"}
           </p>
@@ -86,7 +86,7 @@ export function ClientesListing({ clientes, perfis }: ClientesListingProps) {
         <Button asChild>
           <Link href="/dashboard/clientes/novo">
             <Plus className="size-4" data-icon="inline-start" />
-            Novo cliente
+            Nova pessoa
           </Link>
         </Button>
       </div>
@@ -142,7 +142,7 @@ export function ClientesListing({ clientes, perfis }: ClientesListingProps) {
       {filtered.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
-            Nenhum cliente encontrado.
+            Nenhuma pessoa encontrada.
           </CardContent>
         </Card>
       ) : (

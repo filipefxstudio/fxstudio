@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -20,24 +21,33 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { PessoaDuplicidadeAviso } from "@/components/pessoas/PessoaAutocomplete";
 import {
   descartarAtendimento,
   excluirAtendimento,
   transferirAtendimento,
+  updateAtendimentoCadastro,
 } from "@/lib/actions/atendimentos";
+import { formatTelefoneBr } from "@/lib/imoveis/telefone";
+import { isValidUuid } from "@/lib/utils/uuid";
 import { toast } from "@/hooks/use-toast";
 import type { MotivoDescarte } from "@/types";
 
 interface AtendimentoModalsProps {
   leadId: string;
+  leadClienteId?: string | null;
   leadNome?: string | null;
+  leadTelefone?: string | null;
+  leadEmail?: string | null;
   perfis: { id: string; nome: string }[];
   motivos: MotivoDescarte[];
   podeTransferir: boolean;
   podeExcluir?: boolean;
+  editarOpen?: boolean;
   descartarOpen: boolean;
   transferirOpen: boolean;
   excluirOpen?: boolean;
+  onEditarOpenChange?: (open: boolean) => void;
   onDescartarOpenChange: (open: boolean) => void;
   onTransferirOpenChange: (open: boolean) => void;
   onExcluirOpenChange?: (open: boolean) => void;
@@ -45,14 +55,19 @@ interface AtendimentoModalsProps {
 
 export function AtendimentoModals({
   leadId,
+  leadClienteId,
   leadNome,
+  leadTelefone,
+  leadEmail,
   perfis,
   motivos,
   podeTransferir,
   podeExcluir,
+  editarOpen = false,
   descartarOpen,
   transferirOpen,
   excluirOpen = false,
+  onEditarOpenChange,
   onDescartarOpenChange,
   onTransferirOpenChange,
   onExcluirOpenChange,
@@ -63,10 +78,27 @@ export function AtendimentoModals({
   const [obsDescarte, setObsDescarte] = useState("");
   const [perfilDestino, setPerfilDestino] = useState("");
   const [motivoExclusao, setMotivoExclusao] = useState("");
+  const [nome, setNome] = useState(leadNome ?? "");
+  const [telefone, setTelefone] = useState(leadTelefone ?? "");
+  const [email, setEmail] = useState(leadEmail ?? "");
+  const [duplicidadeAtiva, setDuplicidadeAtiva] = useState(false);
+
+  useEffect(() => {
+    if (editarOpen) {
+      setNome(leadNome ?? "");
+      setTelefone(leadTelefone ? formatTelefoneBr(leadTelefone) : "");
+      setEmail(leadEmail ?? "");
+      setDuplicidadeAtiva(false);
+    }
+  }, [editarOpen, leadNome, leadTelefone, leadEmail]);
 
   function handleDescartar() {
-    if (!motivoId) {
+    if (!isValidUuid(motivoId)) {
       toast({ variant: "destructive", title: "Selecione um motivo." });
+      return;
+    }
+    if (!obsDescarte.trim()) {
+      toast({ variant: "destructive", title: "Informe informações adicionais." });
       return;
     }
     startTransition(async () => {
@@ -98,6 +130,32 @@ export function AtendimentoModals({
     });
   }
 
+  function handleEditar() {
+    if (!nome.trim()) {
+      toast({ variant: "destructive", title: "Informe o nome." });
+      return;
+    }
+    if (!telefone.trim()) {
+      toast({ variant: "destructive", title: "Informe o telefone." });
+      return;
+    }
+
+    startTransition(async () => {
+      const result = await updateAtendimentoCadastro(leadId, {
+        nome,
+        telefone,
+        email: email || undefined,
+      });
+      if (result.error) {
+        toast({ variant: "destructive", title: "Erro", description: result.error });
+        return;
+      }
+      toast({ title: result.message });
+      onEditarOpenChange?.(false);
+      router.refresh();
+    });
+  }
+
   function handleExcluir() {
     if (!motivoExclusao.trim()) {
       toast({ variant: "destructive", title: "Informe o motivo da exclusão." });
@@ -118,6 +176,71 @@ export function AtendimentoModals({
 
   return (
     <>
+      <Dialog open={editarOpen} onOpenChange={(open) => onEditarOpenChange?.(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar cadastro</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="editar-nome">Nome *</Label>
+              <Input
+                id="editar-nome"
+                value={nome}
+                onChange={(e) => setNome(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="editar-telefone">Telefone *</Label>
+              <Input
+                id="editar-telefone"
+                value={telefone}
+                onChange={(e) => setTelefone(formatTelefoneBr(e.target.value))}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="editar-email">E-mail</Label>
+              <Input
+                id="editar-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+            <PessoaDuplicidadeAviso
+              telefone={telefone}
+              email={email}
+              clienteIdIgnorar={leadClienteId ?? undefined}
+              leadIdIgnorar={leadId}
+              originalTelefone={leadTelefone ?? ""}
+              originalEmail={leadEmail ?? ""}
+              onDuplicidadeChange={(duplicado) => setDuplicidadeAtiva(duplicado)}
+            />
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                disabled={isPending}
+                onClick={() => onEditarOpenChange?.(false)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                className="flex-1"
+                disabled={isPending || duplicidadeAtiva}
+                onClick={handleEditar}
+              >
+                {isPending ? <Loader2 className="size-4 animate-spin" /> : "Salvar"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={descartarOpen} onOpenChange={onDescartarOpenChange}>
         <DialogContent>
           <DialogHeader>
@@ -143,27 +266,38 @@ export function AtendimentoModals({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Observação (opcional)</Label>
+              <Label>Informações adicionais *</Label>
               <Textarea
                 value={obsDescarte}
                 onChange={(e) => setObsDescarte(e.target.value)}
                 rows={2}
+                required
               />
             </div>
-            <Button
-              variant="destructive"
-              className="w-full"
-              disabled={isPending}
-              onClick={handleDescartar}
-            >
-              {isPending ? <Loader2 className="size-4 animate-spin" /> : "Confirmar descarte"}
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                disabled={isPending}
+                onClick={() => onDescartarOpenChange(false)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="destructive"
+                className="flex-1"
+                disabled={isPending}
+                onClick={handleDescartar}
+              >
+                {isPending ? <Loader2 className="size-4 animate-spin" /> : "Confirmar descarte"}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
 
-      {podeTransferir ? (
-        <Dialog open={transferirOpen} onOpenChange={onTransferirOpenChange}>
+      <Dialog open={transferirOpen} onOpenChange={onTransferirOpenChange}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Transferir atendimento</DialogTitle>
@@ -189,8 +323,7 @@ export function AtendimentoModals({
               </Button>
             </div>
           </DialogContent>
-        </Dialog>
-      ) : null}
+      </Dialog>
 
       {podeExcluir ? (
         <Dialog open={excluirOpen} onOpenChange={(open) => onExcluirOpenChange?.(open)}>

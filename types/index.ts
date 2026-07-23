@@ -18,7 +18,14 @@ export type LocalChaves = "imobiliaria" | "proprietario" | "portaria" | "outros"
 
 export type FinalidadeImovel = "venda" | "locacao";
 
-export type StatusImovelSlug = "disponivel" | "reservado" | "vendido" | "locado" | "desativado";
+export type StatusImovelSlug =
+  | "em_cadastro"
+  | "aguardando_aprovacao"
+  | "disponivel"
+  | "reservado"
+  | "vendido"
+  | "locado"
+  | "desativado";
 
 export type StatusAprovacaoImovel = "em_cadastro" | "aguardando_aprovacao" | "aprovado";
 
@@ -66,6 +73,7 @@ export type EtapaLead =
   | "visita_agendada"
   | "proposta"
   | "negociacao"
+  | "venda"
   | "fechado"
   | "perdido";
 
@@ -221,6 +229,8 @@ export interface Cliente {
   criado_em: string;
   atualizado_em: string;
   perfil?: Perfil | null;
+  /** Quando preenchido, a linha veio da tabela leads (sem registro em clientes). */
+  lead_id?: string | null;
 }
 
 export interface TipoImovelCustom {
@@ -300,6 +310,8 @@ export interface Imovel {
   status_aprovacao?: StatusAprovacaoImovel;
   captador_id?: string | null;
   captador?: Perfil | null;
+  captadores?: ImovelCaptador[];
+  proprietarios?: ImovelProprietario[];
   comissao_percent?: number | null;
   exibir_endereco_site?: ExibirEnderecoModo;
   exibir_endereco_portais?: ExibirEnderecoModo;
@@ -313,6 +325,7 @@ export interface Imovel {
   logradouro?: string | null;
   numero?: string | null;
   complemento?: string | null;
+  complemento_valor?: string | null;
   complemento_tipo?: string | null;
   complemento_numero?: string | null;
   complemento_torre?: string | null;
@@ -357,6 +370,7 @@ export interface Imovel {
   diferenciais?: string[] | null;
   video_url?: string | null;
   publicado_site: boolean;
+  destaque_site?: boolean;
   publicado_portais?: boolean;
   cliente_id?: string | null;
   cliente?: Cliente | null;
@@ -369,6 +383,7 @@ export interface Imovel {
 export interface Lead {
   id: string;
   corretor_id: string;
+  cliente_id?: string | null;
   imovel_id?: string | null;
   perfil_id?: string | null;
   codigo_atendimento?: string | null;
@@ -395,6 +410,8 @@ export interface Lead {
   obs_financeiras?: string | null;
   data_entrada?: string | null;
   tempo_primeira_resposta_min?: number | null;
+  motivo_descarte_id?: string | null;
+  motivo_descarte_texto?: string | null;
   etapa: EtapaLead;
   temperatura: TemperaturaLead;
   origem: OrigemLead;
@@ -443,6 +460,16 @@ export interface AssinaturaInsert {
   status: StatusAssinatura;
 }
 
+export interface PerfilInsert {
+  corretor_id: string;
+  user_id: string;
+  nome: string;
+  email: string;
+  telefone: string | null;
+  papel: PapelUsuario;
+  ativo: boolean;
+}
+
 export interface CorretorComRelacoes extends Corretor {
   assinaturas?: Assinatura[];
   agente_config?: AgenteConfig | AgenteConfig[] | null;
@@ -456,7 +483,12 @@ export interface ZApiWebhookBody {
   };
 }
 
-export type StatusVisita = "agendada" | "realizada" | "cancelada" | "nao_compareceu";
+export type StatusVisita =
+  | "agendada"
+  | "confirmada"
+  | "realizada"
+  | "cancelada"
+  | "nao_compareceu";
 
 export type ParecerVisita = "positivo" | "neutro" | "negativo";
 
@@ -471,12 +503,17 @@ export type StatusProposta =
 
 export type StatusNegocio = "fechado" | "cancelado";
 
-export type FormaPagamentoNegocio =
-  | "avista"
-  | "financiamento"
-  | "consorcio"
-  | "permuta"
-  | "outro";
+export type FormaPagamentoNegocio = "avista" | "financiado";
+
+export type PapelRateioNegocio = "vendedor" | "captador" | "outro";
+
+export interface NegocioRateioItem {
+  perfil_id: string;
+  papel: PapelRateioNegocio;
+  percentual: number;
+  valor: number;
+  nome?: string | null;
+}
 
 export type TipoAgenda =
   | "visita"
@@ -536,6 +573,10 @@ export interface Negocio {
   data_prevista_comissao?: string | null;
   data_recebimento_comissao?: string | null;
   forma_pagamento?: FormaPagamentoNegocio | null;
+  valor_recursos_proprios?: number | null;
+  valor_financiado?: number | null;
+  valor_fgts?: number | null;
+  rateio?: NegocioRateioItem[] | null;
   status: StatusNegocio;
   observacoes?: string | null;
   criado_em: string;
@@ -543,6 +584,12 @@ export interface Negocio {
   proposta?: Proposta | null;
   perfil?: Perfil | null;
 }
+
+/** TODO: modelar contratos gerados a partir de negócios fechados (configurações). */
+export type ContratoNegocioStub = {
+  negocio_id: string;
+  template_id?: string | null;
+};
 
 export interface LeadImovelSelecionado {
   id: string;
@@ -563,6 +610,15 @@ export interface ImovelCaptador {
   principal: boolean;
   criado_em: string;
   perfil?: Perfil | null;
+}
+
+export interface ImovelProprietario {
+  id: string;
+  imovel_id: string;
+  cliente_id: string;
+  ordem: number;
+  criado_em: string;
+  cliente?: Cliente | null;
 }
 
 export interface Agenda {
@@ -604,10 +660,37 @@ export interface AtendimentoConfig {
   criado_em: string;
 }
 
+export interface ConfigFichaVisita {
+  id: string;
+  corretor_id: string;
+  texto_clausula?: string | null;
+  percentual_comissao: number;
+  usa_texto_padrao: boolean;
+  criado_em: string;
+  atualizado_em?: string;
+}
+
 export interface MotivoDescarte {
   id: string;
   corretor_id: string;
   nome: string;
   ativo: boolean;
   ordem: number;
+}
+
+export type GrupoExportacaoDados =
+  | "imoveis"
+  | "clientes"
+  | "atendimentos"
+  | "visitas"
+  | "propostas"
+  | "negocios"
+  | "agenda";
+
+export interface ExportacaoDados {
+  id: string;
+  corretor_id: string;
+  usuario_id: string;
+  grupos_exportados: GrupoExportacaoDados[];
+  criado_em: string;
 }

@@ -7,7 +7,7 @@ import { AtendimentoTabs } from "@/components/atendimentos/AtendimentoTabs";
 import { AtendimentoDadosTab } from "@/components/atendimentos/AtendimentoDadosTab";
 import { AuditoriaTab } from "@/components/atendimentos/AuditoriaTab";
 import { ImoveisSelecionadosTab } from "@/components/atendimentos/ImoveisSelecionadosTab";
-import { NegocioTab } from "@/components/atendimentos/NegocioTab";
+import { NegocioFechadoTab } from "@/components/atendimentos/NegocioFechadoTab";
 import { PropostasTab } from "@/components/atendimentos/PropostasTab";
 import { RadarImoveisTab } from "@/components/atendimentos/RadarImoveisTab";
 import { VisitasTab } from "@/components/atendimentos/VisitasTab";
@@ -19,6 +19,7 @@ import type {
   MotivoDescarte,
   Negocio,
   Proposta,
+  StatusImovel,
   TipoImovelCustom,
   Visita,
 } from "@/types";
@@ -26,6 +27,7 @@ import type {
 interface AtendimentoClientProps {
   lead: Lead;
   perfis: { id: string; nome: string }[];
+  perfilAtualId?: string | null;
   imoveisRadar: Imovel[];
   visitas: Visita[];
   propostas: Proposta[];
@@ -35,11 +37,14 @@ interface AtendimentoClientProps {
   motivos: MotivoDescarte[];
   podeTransferir: boolean;
   tiposImovel: TipoImovelCustom[];
+  corretorSlug: string;
+  statusList: StatusImovel[];
 }
 
 export function AtendimentoClient({
   lead,
   perfis,
+  perfilAtualId,
   imoveisRadar,
   visitas,
   propostas,
@@ -49,6 +54,8 @@ export function AtendimentoClient({
   motivos,
   podeTransferir,
   tiposImovel,
+  corretorSlug,
+  statusList,
 }: AtendimentoClientProps) {
   const imoveisParaAcao = imoveisSelecionados
     .map((s) => s.imovel)
@@ -66,26 +73,30 @@ export function AtendimentoClient({
       <Suspense fallback={<div className="h-40 animate-pulse rounded-xl bg-muted" />}>
         <AtendimentoTabs
           panels={{
-            dados: <AtendimentoDadosTab lead={lead} perfis={perfis} tiposImovel={tiposImovel} />,
+            dados: <AtendimentoDadosTab lead={lead} perfis={perfis} tiposImovel={tiposImovel} motivos={motivos} />,
             radar: (
               <RadarImoveisTab
                 leadId={lead.id}
                 imoveis={imoveisRadar}
                 selecionados={imoveisSelecionados}
-                imovelInteresseId={lead.imovel_id}
+                corretorSlug={corretorSlug}
+                statusList={statusList}
               />
             ),
             selecionados: (
               <ImoveisSelecionadosTab
                 leadId={lead.id}
                 selecionados={imoveisSelecionados}
-                imovelInteresseId={lead.imovel_id}
+                visitas={visitas}
+                corretorSlug={corretorSlug}
+                statusList={statusList}
               />
             ),
             visitas: (
               <VisitasTab
                 leadId={lead.id}
                 visitas={visitas}
+                propostas={propostas}
                 imoveis={imoveisParaAcao.length > 0 ? imoveisParaAcao : imoveisRadar}
               />
             ),
@@ -93,10 +104,20 @@ export function AtendimentoClient({
               <PropostasTab
                 leadId={lead.id}
                 propostas={propostas}
+                negocios={negocios}
                 imoveis={imoveisParaAcao.length > 0 ? imoveisParaAcao : imoveisRadar}
+                perfis={perfis}
+                perfilAtualId={perfilAtualId}
               />
             ),
-            negocio: <NegocioTab negocios={negocios} />,
+            negocio: (
+              <NegocioFechadoTab
+                leadId={lead.id}
+                negocios={negocios}
+                perfis={perfis}
+                perfilAtualId={perfilAtualId}
+              />
+            ),
             auditoria: <AuditoriaTab registros={auditoria} />,
           }}
         />

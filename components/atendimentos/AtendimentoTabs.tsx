@@ -13,7 +13,7 @@ import {
 import type { ReactNode } from "react";
 
 const TAB_ITEMS = [
-  { id: "dados", label: "Dados" },
+  { id: "dados", label: "Detalhes do atendimento" },
   { id: "radar", label: "Radar de imóveis" },
   { id: "selecionados", label: "Imóveis Selecionados" },
   { id: "visitas", label: "Visitas" },

@@ -17,6 +17,12 @@ interface ClienteCardProps {
 export function ClienteCard({ cliente }: ClienteCardProps) {
   const responsavel = cliente.perfil?.nome ?? "—";
   const dataCadastro = format(new Date(cliente.criado_em), "dd/MM/yyyy", { locale: ptBR });
+  const detalheHref = cliente.lead_id
+    ? `/dashboard/atendimentos/${cliente.lead_id}`
+    : `/dashboard/clientes/${cliente.id}`;
+  const editarHref = cliente.lead_id
+    ? `/dashboard/atendimentos/${cliente.lead_id}`
+    : `/dashboard/clientes/${cliente.id}?editar=1`;
 
   return (
     <Card className="h-full">
@@ -55,10 +61,10 @@ export function ClienteCard({ cliente }: ClienteCardProps) {
 
         <div className="flex gap-2 pt-1">
           <Button variant="outline" size="sm" className="flex-1" asChild>
-            <Link href={`/dashboard/clientes/${cliente.id}`}>Ver</Link>
+            <Link href={detalheHref}>Ver</Link>
           </Button>
           <Button variant="secondary" size="sm" className="flex-1" asChild>
-            <Link href={`/dashboard/clientes/${cliente.id}?editar=1`}>Editar</Link>
+            <Link href={editarHref}>{cliente.lead_id ? "Atendimento" : "Editar"}</Link>
           </Button>
         </div>
       </CardContent>

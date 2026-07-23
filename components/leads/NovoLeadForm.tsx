@@ -6,6 +6,7 @@ import { useState, useTransition } from "react";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { PessoaAutocomplete } from "@/components/pessoas/PessoaAutocomplete";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -80,34 +81,18 @@ export function NovoLeadForm({ midias, perfis }: NovoLeadFormProps) {
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
+          <PessoaAutocomplete
+            context="atendimento"
+            nome={nome}
+            telefone={telefone}
+            email={email}
+            onNomeChange={setNome}
+            onTelefoneChange={setTelefone}
+            onEmailChange={setEmail}
+            perfilAtualId={perfilId || undefined}
+            disabled={isPending}
+          />
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="nome">Nome *</Label>
-              <Input
-                id="nome"
-                value={nome}
-                onChange={(e) => setNome(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="telefone">Telefone *</Label>
-              <Input
-                id="telefone"
-                value={telefone}
-                onChange={(e) => setTelefone(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="email">E-mail</Label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
             <div className="space-y-2">
               <Label>Finalidade</Label>
               <Select value={finalidade} onValueChange={setFinalidade}>

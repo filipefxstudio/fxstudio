@@ -50,7 +50,7 @@ No topo de `seed_dados_teste.sql` há comandos `DELETE` comentados. Descomente a
 
 - Valores de `status` em visitas seguem o app: `agendada`, `realizada`, `cancelada`, `nao_compareceu`.
 - Parecer de visita: `positivo`, `neutro`, `negativo`.
-- `visitas.vai_gerar_proposta` é **BOOLEAN** — use `true`, `false` ou `NULL` (não `'sim'`/`'nao'`/`'talvez'`).
+- `visitas.vai_gerar_proposta` é **VARCHAR** — use `'sim'`, `'nao'`, `'talvez'` ou `NULL`.
 - Colunas booleanas em `imoveis` (`publicado_site`, `publicado_portais`, `exclusividade`, `imovel_ocupado`, `aceita_financiamento`) e `agenda` (`lembrete_email`, `lembrete_enviado`) também exigem literais SQL `true`/`false`.
 - Tipos de agenda: `visita`, `ligacao`, `reuniao`, `tarefa`, `lembrete`, `outro` (e-mail/WhatsApp mapeados em `tarefa`/`lembrete`).
 - Status de agenda: `pendente`, `concluida`, `cancelada`.

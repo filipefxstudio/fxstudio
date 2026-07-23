@@ -54,7 +54,7 @@ const navItems = [
   { href: "/dashboard/agenda", label: "Agenda", icon: Calendar },
   { href: "/dashboard/imoveis", label: "Imóveis", icon: Building2 },
   { href: "/dashboard/atendimentos", label: "Atendimentos", icon: Users },
-  { href: "/dashboard/clientes", label: "Clientes", icon: User },
+  { href: "/dashboard/clientes", label: "Pessoas", icon: User },
   { href: "/dashboard/configuracoes", label: "Configurações", icon: Settings },
 ] as const;
 

@@ -1,6 +1,24 @@
-import type { Imovel, ImovelFoto } from "@/types";
-import type { ImovelFormValues } from "@/lib/validations/imovel";
+import type { Imovel, ImovelFoto, StatusImovel } from "@/types";
+import {
+  imovelFormDefaultValues,
+  type CaptadorFormItem,
+  type ImovelFormValues,
+} from "@/lib/validations/imovel";
 import type { FotoItem } from "@/components/imoveis/FotoUpload";
+
+/** Converte valor do banco para o formulário; 0 legado vira vazio, exceto quando 0 é válido (vagas). */
+function numericFromDb(
+  value: number | null | undefined,
+  options?: { allowZero?: boolean },
+): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (!options?.allowZero && value === 0) {
+    return null;
+  }
+  return value;
+}
 
 function buildComplementoLegacy(imovel: Imovel): string {
   if (imovel.complemento) {
@@ -17,7 +35,105 @@ function buildComplementoLegacy(imovel: Imovel): string {
   return parts.join(", ");
 }
 
+function captadoresToFormItems(imovel: Imovel): CaptadorFormItem[] {
+  const captadores = imovel.captadores ?? [];
+
+  if (captadores.length > 0) {
+    return captadores.map((item) => ({
+      id: item.id,
+      perfil_id: item.perfil_id ?? null,
+      nome_externo: item.nome_externo ?? null,
+      principal: item.principal,
+      externo: !item.perfil_id,
+    }));
+  }
+
+  if (imovel.captador_id) {
+    return [
+      {
+        id: crypto.randomUUID(),
+        perfil_id: imovel.captador_id,
+        nome_externo: null,
+        principal: true,
+        externo: false,
+      },
+    ];
+  }
+
+  return [];
+}
+
+export interface ProprietarioFormItem {
+  id: string;
+  nome: string;
+  telefone: string;
+}
+
+function proprietarioIdsFromImovel(imovel: Imovel): string[] {
+  const ids: string[] = [];
+
+  if (imovel.cliente_id) {
+    ids.push(imovel.cliente_id);
+  }
+
+  for (const item of imovel.proprietarios ?? []) {
+    if (item.cliente_id && !ids.includes(item.cliente_id)) {
+      ids.push(item.cliente_id);
+    }
+  }
+
+  return ids;
+}
+
+export function proprietariosFromImovel(imovel: Imovel): ProprietarioFormItem[] {
+  const ids = proprietarioIdsFromImovel(imovel);
+  const byId = new Map<string, ProprietarioFormItem>();
+
+  if (imovel.cliente_id && imovel.cliente) {
+    byId.set(imovel.cliente_id, {
+      id: imovel.cliente_id,
+      nome: imovel.cliente.nome,
+      telefone: imovel.cliente.telefone,
+    });
+  }
+
+  for (const item of imovel.proprietarios ?? []) {
+    if (item.cliente_id && item.cliente) {
+      byId.set(item.cliente_id, {
+        id: item.cliente_id,
+        nome: item.cliente.nome,
+        telefone: item.cliente.telefone,
+      });
+    }
+  }
+
+  return ids.map(
+    (id) => byId.get(id) ?? { id, nome: "Proprietário vinculado", telefone: "" },
+  );
+}
+
+export function resolveStatusEmCadastroId(statusList: StatusImovel[]): string {
+  const byNome = statusList.find((status) => status.nome === "Em cadastro");
+  if (byNome) {
+    return byNome.id;
+  }
+
+  return statusList.find((status) => status.ordem === -2)?.id ?? "";
+}
+
+export function buildImovelFormDefaultValues(
+  statusList: StatusImovel[] = [],
+): ImovelFormValues {
+  return {
+    ...imovelFormDefaultValues,
+    status_imovel_id: resolveStatusEmCadastroId(statusList),
+  };
+}
+
 export function imovelToFormValues(imovel: Imovel): ImovelFormValues {
+  const proprietarioIds = proprietarioIdsFromImovel(imovel);
+  const captadores = captadoresToFormItems(imovel);
+
   return {
     titulo: imovel.titulo ?? "",
     codigo_personalizado: imovel.codigo_personalizado ?? "",
@@ -55,30 +171,33 @@ export function imovelToFormValues(imovel: Imovel): ImovelFormValues {
     aceita_financiamento: imovel.aceita_financiamento ?? false,
     aceita_permuta: imovel.aceita_permuta ?? false,
     imovel_na_planta: imovel.imovel_na_planta ?? false,
-    area_util: imovel.area_util ?? null,
-    area_total: imovel.area_total ?? null,
-    ano_construcao: imovel.ano_construcao ?? null,
-    quartos: imovel.quartos,
-    suites: imovel.suites,
-    salas: imovel.salas ?? 0,
-    banheiros: imovel.banheiros,
-    elevadores: imovel.elevadores ?? 0,
-    vagas: imovel.vagas,
+    area_util: numericFromDb(imovel.area_util),
+    area_total: numericFromDb(imovel.area_total),
+    ano_construcao: numericFromDb(imovel.ano_construcao),
+    quartos: numericFromDb(imovel.quartos),
+    suites: numericFromDb(imovel.suites),
+    salas: numericFromDb(imovel.salas),
+    banheiros: numericFromDb(imovel.banheiros),
+    elevadores: numericFromDb(imovel.elevadores),
+    vagas: numericFromDb(imovel.vagas, { allowZero: true }),
     vagas_tipo: imovel.vagas_tipo ?? "",
     vagas_cobertura: imovel.vagas_cobertura ?? "",
     valor_venda: imovel.valor_venda ?? null,
     valor_locacao: imovel.valor_locacao ?? null,
-    valor_condominio: imovel.valor_condominio ?? null,
-    valor_iptu: imovel.valor_iptu ?? null,
-    comissao_percent: imovel.comissao_percent ?? null,
+    valor_condominio: numericFromDb(imovel.valor_condominio),
+    valor_iptu: numericFromDb(imovel.valor_iptu),
+    comissao_percent: numericFromDb(imovel.comissao_percent),
     descricao: imovel.descricao ?? "",
     diferenciais: imovel.diferenciais ?? [],
     video_url: imovel.video_url ?? "",
     publicado_site: imovel.publicado_site,
+    destaque_site: imovel.destaque_site ?? false,
     publicado_portais: imovel.publicado_portais ?? false,
     exibir_endereco_site: imovel.exibir_endereco_site ?? "apenas_bairro",
     exibir_endereco_portais: imovel.exibir_endereco_portais ?? "apenas_bairro",
-    cliente_id: imovel.cliente_id ?? null,
+    cliente_id: proprietarioIds[0] ?? imovel.cliente_id ?? null,
+    proprietario_ids: proprietarioIds,
+    captadores,
     captador_id: imovel.captador_id ?? "",
     proprietario_novo: null,
   };
@@ -108,4 +227,9 @@ export function buildComplementoString(values: ImovelFormValues): string {
     parts.push(values.condominio_nome);
   }
   return parts.join(" — ") || values.complemento?.trim() || "";
+}
+
+export function getCaptadorPrincipalId(captadores: CaptadorFormItem[]): string | null {
+  const principal = captadores.find((item) => item.principal) ?? captadores[0];
+  return principal?.externo ? null : principal?.perfil_id ?? null;
 }

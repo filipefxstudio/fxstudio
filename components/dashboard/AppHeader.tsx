@@ -7,14 +7,14 @@ import {
   ArrowLeft,
   ChevronDown,
   ExternalLink,
-  Home,
+  HousePlus,
   Menu,
   Search,
-  UserPlus,
   UserRound,
 } from "lucide-react";
 
 import { LogoutButton } from "@/components/auth/logout-button";
+import { NovoAtendimentoTrigger } from "@/components/atendimentos/NovoAtendimentoTrigger";
 import { useSidebarContext } from "@/components/dashboard/Sidebar";
 import { Button } from "@/components/ui/button";
 import {
@@ -119,23 +119,14 @@ export function AppHeader({ nome, slug, logoUrl }: AppHeaderProps) {
             <TooltipTrigger asChild>
               <Button variant="ghost" size="icon-sm" asChild className="relative">
                 <Link href="/dashboard/imoveis/novo" aria-label="Novo imóvel">
-                  <Home className="size-4" />
+                  <HousePlus className="size-4" />
                 </Link>
               </Button>
             </TooltipTrigger>
             <TooltipContent>Novo imóvel</TooltipContent>
           </Tooltip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" asChild>
-                <Link href="/dashboard/atendimentos/novo" aria-label="Novo atendimento">
-                  <UserPlus className="size-4" />
-                </Link>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Novo atendimento</TooltipContent>
-          </Tooltip>
+          <NovoAtendimentoTrigger variant="icon" />
         </div>
 
         <DropdownMenu open={searchOpen} onOpenChange={setSearchOpen}>

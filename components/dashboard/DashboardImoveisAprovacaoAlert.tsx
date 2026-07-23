@@ -20,7 +20,7 @@ export function DashboardImoveisAprovacaoAlert({
         <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" />
         <div>
           <p className="font-medium text-amber-900">
-            {count} imóvel{count === 1 ? "" : "is"} aguardando aprovação
+            {count} {count === 1 ? "imóvel" : "imóveis"} aguardando aprovação
           </p>
           <p className="mt-1 text-sm text-amber-800">
             Revise os cadastros pendentes antes de publicar no site e portais.
@@ -28,7 +28,7 @@ export function DashboardImoveisAprovacaoAlert({
         </div>
       </div>
       <Button asChild variant="outline" className="border-amber-300 bg-white">
-        <Link href="/dashboard/imoveis">Ver imóveis</Link>
+        <Link href="/dashboard/imoveis?status=aguardando_aprovacao">Ver imóveis</Link>
       </Button>
     </div>
   );

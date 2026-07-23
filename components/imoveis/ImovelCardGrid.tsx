@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import {
   Bath,
   BedDouble,
@@ -22,10 +23,11 @@ import {
   getFinalidadeLabel,
   getTipoLabel,
 } from "@/lib/site/format";
+import { getCaptadorPrincipalNome } from "@/lib/imoveis/captador";
 import type { Imovel, StatusImovel } from "@/types";
 
 function formatCaptadorLinha(imovel: Imovel, codigo: string): string {
-  const captador = imovel.captador?.nome;
+  const captador = getCaptadorPrincipalNome(imovel);
   if (captador) {
     return `${codigo} • ${captador}`;
   }
@@ -36,9 +38,19 @@ interface ImovelCardItemProps {
   imovel: Imovel;
   corretorSlug: string;
   statusList: StatusImovel[];
+  linkTarget?: "_blank" | "_self";
+  renderCardActions?: (imovel: Imovel) => ReactNode;
+  cardBadge?: ReactNode;
 }
 
-function ImovelCardItem({ imovel, corretorSlug, statusList }: ImovelCardItemProps) {
+function ImovelCardItem({
+  imovel,
+  corretorSlug,
+  statusList,
+  linkTarget = "_self",
+  renderCardActions,
+  cardBadge,
+}: ImovelCardItemProps) {
   const capa = getCapaUrl(imovel);
   const codigo = getImovelCodigo(imovel);
   const valor = getValorNumerico(imovel);
@@ -52,6 +64,8 @@ function ImovelCardItem({ imovel, corretorSlug, statusList }: ImovelCardItemProp
       <Link
         href={`/dashboard/imoveis/${imovel.id}`}
         className="block"
+        target={linkTarget}
+        rel={linkTarget === "_blank" ? "noopener noreferrer" : undefined}
       >
         <div className="relative aspect-[4/3] overflow-hidden bg-muted">
           {capa ? (
@@ -69,6 +83,7 @@ function ImovelCardItem({ imovel, corretorSlug, statusList }: ImovelCardItemProp
           <div className="absolute left-3 top-3">
             <StatusBadge status={imovel.status} statusImovel={imovel.status_imovel} />
           </div>
+          {cardBadge ? <div className="absolute right-3 top-3">{cardBadge}</div> : null}
         </div>
 
         <div className="space-y-2.5 p-4">
@@ -118,13 +133,17 @@ function ImovelCardItem({ imovel, corretorSlug, statusList }: ImovelCardItemProp
         <p className="min-w-0 truncate text-xs text-muted-foreground">
           {formatCaptadorLinha(imovel, codigo)}
         </p>
-        <ImovelAcoesDropdown
-          imovel={imovel}
-          corretorSlug={corretorSlug}
-          statusList={statusList}
-          variant="card"
-          className="shrink-0"
-        />
+        {renderCardActions ? (
+          <div className="shrink-0">{renderCardActions(imovel)}</div>
+        ) : (
+          <ImovelAcoesDropdown
+            imovel={imovel}
+            corretorSlug={corretorSlug}
+            statusList={statusList}
+            variant="card"
+            className="shrink-0"
+          />
+        )}
       </div>
     </article>
   );
@@ -134,9 +153,19 @@ interface ImovelCardGridProps {
   imoveis: Imovel[];
   corretorSlug: string;
   statusList: StatusImovel[];
+  linkTarget?: "_blank" | "_self";
+  renderCardActions?: (imovel: Imovel) => ReactNode;
+  getCardBadge?: (imovel: Imovel) => ReactNode;
 }
 
-export function ImovelCardGrid({ imoveis, corretorSlug, statusList }: ImovelCardGridProps) {
+export function ImovelCardGrid({
+  imoveis,
+  corretorSlug,
+  statusList,
+  linkTarget,
+  renderCardActions,
+  getCardBadge,
+}: ImovelCardGridProps) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {imoveis.map((imovel) => (
@@ -145,6 +174,9 @@ export function ImovelCardGrid({ imoveis, corretorSlug, statusList }: ImovelCard
           imovel={imovel}
           corretorSlug={corretorSlug}
           statusList={statusList}
+          linkTarget={linkTarget}
+          renderCardActions={renderCardActions}
+          cardBadge={getCardBadge?.(imovel)}
         />
       ))}
     </div>

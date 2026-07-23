@@ -29,7 +29,7 @@ export function KanbanColumn({ etapa, label, leads, accent = "default" }: Kanban
   return (
     <div
       className={cn(
-        "flex w-72 shrink-0 flex-col rounded-xl border",
+        "flex w-72 min-w-72 shrink-0 flex-col rounded-xl border",
         accentStyles[accent],
       )}
     >

@@ -1,6 +1,10 @@
 "use client";
 
-import { Loader2, MoreVertical, Pencil, Trash2, UserPlus } from "lucide-react";
+import { Loader2, MoreVertical, UserPlus } from "lucide-react";
+
+import { ActionMenuIcon } from "@/components/ui/action-menu-item";
+import { ACTION_MENU_DESTRUCTIVE_CLASS } from "@/lib/ui/action-menu-icons";
+import { cn } from "@/lib/utils";
 import { useRef, useState, useTransition, useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -27,21 +31,23 @@ import {
   excluirPerfil,
   togglePerfilAtivo,
 } from "@/lib/actions/configuracoes";
+import { PAPEL_DESCRICOES, PAPEL_LABELS } from "@/lib/auth/equipe-labels";
+import {
+  isPerfilConvitePendente,
+  isPrincipalPerfil,
+  type CorretorRef,
+} from "@/lib/auth/equipe-perfil";
 import { EQUIPE_LIMITE_USUARIOS } from "@/lib/constants/imoveis";
 import type { PapelUsuario, Perfil } from "@/types";
 
 interface AbaEquipeProps {
   perfis: Perfil[];
-  adminPrincipalUserId: string;
+  corretor: CorretorRef;
 }
 
-const papelLabels: Record<PapelUsuario, string> = {
-  admin: "Admin",
-  gerente: "Gerente/Diretor",
-  corretor: "Corretor",
-};
+const papelLabels = PAPEL_LABELS;
 
-export function AbaEquipe({ perfis: initialPerfis, adminPrincipalUserId }: AbaEquipeProps) {
+export function AbaEquipe({ perfis: initialPerfis, corretor }: AbaEquipeProps) {
   const [perfis, setPerfis] = useState(initialPerfis);
   const [showForm, setShowForm] = useState(false);
   const [nome, setNome] = useState("");
@@ -60,7 +66,11 @@ export function AbaEquipe({ perfis: initialPerfis, adminPrincipalUserId }: AbaEq
   const [editPapel, setEditPapel] = useState<PapelUsuario>("corretor");
 
   function isPrincipal(perfil: Perfil) {
-    return perfil.user_id === adminPrincipalUserId;
+    return isPrincipalPerfil(perfil, corretor);
+  }
+
+  function isConvitePendente(perfil: Perfil) {
+    return isPerfilConvitePendente(perfil, corretor);
   }
 
   function handleConvidar(event: React.FormEvent) {
@@ -102,7 +112,7 @@ export function AbaEquipe({ perfis: initialPerfis, adminPrincipalUserId }: AbaEq
     setSelected(perfil);
     setEditNome(perfil.nome);
     setEditEmail(perfil.email);
-    setEditPapel(perfil.papel);
+    setEditPapel(isPrincipal(perfil) ? "admin" : perfil.papel);
     setEditOpen(true);
   }
 
@@ -154,7 +164,8 @@ export function AbaEquipe({ perfis: initialPerfis, adminPrincipalUserId }: AbaEq
       <CardHeader>
         <CardTitle>Equipe</CardTitle>
         <CardDescription>
-          Até {EQUIPE_LIMITE_USUARIOS} usuários com acesso ao painel.
+          Até {EQUIPE_LIMITE_USUARIOS} usuários com acesso ao painel. Apenas administradores
+          podem convidar membros, alterar papéis e o e-mail de login.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -177,11 +188,17 @@ export function AbaEquipe({ perfis: initialPerfis, adminPrincipalUserId }: AbaEq
                     ) : null}
                   </p>
                   <p className="text-sm text-muted-foreground">{perfil.email}</p>
+                  {isConvitePendente(perfil) ? (
+                    <p className="text-xs text-amber-600">Convite pendente — aguardando primeiro acesso</p>
+                  ) : null}
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-sm text-muted-foreground">
-                    {papelLabels[perfil.papel]}
+                    {papelLabels[isPrincipal(perfil) ? "admin" : perfil.papel]}
                   </span>
+                  {!perfil.ativo && !isPrincipal(perfil) ? (
+                    <span className="text-xs text-muted-foreground">Inativo</span>
+                  ) : null}
                   {!isPrincipal(perfil) ? (
                     <Switch
                       checked={perfil.ativo}
@@ -234,17 +251,18 @@ export function AbaEquipe({ perfis: initialPerfis, adminPrincipalUserId }: AbaEq
                 />
               </div>
               <div className="space-y-2">
-                <Label>Papel</Label>
+                <Label>Papel e permissões</Label>
                 <Select value={papel} onValueChange={(v) => setPapel(v as PapelUsuario)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="gerente">Gerente</SelectItem>
+                    <SelectItem value="admin">Administrador</SelectItem>
+                    <SelectItem value="gerente">Gerente/Diretor</SelectItem>
                     <SelectItem value="corretor">Corretor</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">{PAPEL_DESCRICOES[papel]}</p>
               </div>
             </div>
             <div className="flex gap-2">
@@ -283,19 +301,34 @@ export function AbaEquipe({ perfis: initialPerfis, adminPrincipalUserId }: AbaEq
               <Input value={editNome} onChange={(e) => setEditNome(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label>E-mail</Label>
+              <Label>E-mail de login</Label>
               <Input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} />
+              <p className="text-xs text-muted-foreground">
+                {selected && isConvitePendente(selected)
+                  ? "Convite ainda não ativado: altera o e-mail do convite. O login será criado no primeiro acesso."
+                  : "Altera o e-mail usado para entrar no painel (auth) e mantém o perfil sincronizado."}
+              </p>
             </div>
             <div className="space-y-2">
-              <Label>Papel</Label>
-              <Select value={editPapel} onValueChange={(v) => setEditPapel(v as PapelUsuario)}>
+              <Label>Papel e permissões</Label>
+              <Select
+                value={editPapel}
+                onValueChange={(v) => setEditPapel(v as PapelUsuario)}
+                disabled={selected ? isPrincipal(selected) : false}
+              >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="gerente">Gerente</SelectItem>
+                  <SelectItem value="admin">Administrador</SelectItem>
+                  <SelectItem value="gerente">Gerente/Diretor</SelectItem>
                   <SelectItem value="corretor">Corretor</SelectItem>
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground">{PAPEL_DESCRICOES[editPapel]}</p>
+              {selected && isPrincipal(selected) ? (
+                <p className="text-xs text-muted-foreground">
+                  O administrador principal permanece com papel Administrador.
+                </p>
+              ) : null}
             </div>
             <Button className="w-full" disabled={isPending} onClick={handleEdit}>
               Salvar
@@ -366,19 +399,22 @@ function EquipeAcoesMenu({
               onEdit();
             }}
           >
-            <Pencil className="size-3.5" />
+            <ActionMenuIcon action="editar" />
             Editar
           </button>
           {!isPrincipal ? (
             <button
               type="button"
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive hover:bg-muted"
+              className={cn(
+                "flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted",
+                ACTION_MENU_DESTRUCTIVE_CLASS,
+              )}
               onClick={() => {
                 setOpen(false);
                 onDelete();
               }}
             >
-              <Trash2 className="size-3.5" />
+              <ActionMenuIcon action="excluir" />
               Excluir
             </button>
           ) : null}

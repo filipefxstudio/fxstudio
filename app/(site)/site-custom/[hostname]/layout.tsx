@@ -20,9 +20,12 @@ export async function generateMetadata({ params }: CustomDomainLayoutProps): Pro
     return { title: "Site não encontrado" };
   }
 
+  const faviconUrl = corretor.site_favicon_url?.trim();
+
   return {
     title: `${corretor.nome} — Imóveis`,
     description: corretor.sobre_texto ?? corretor.sobre ?? `Imóveis disponíveis com ${corretor.nome}`,
+    ...(faviconUrl ? { icons: { icon: faviconUrl } } : {}),
   };
 }
 

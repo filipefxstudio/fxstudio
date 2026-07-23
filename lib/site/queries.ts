@@ -153,6 +153,28 @@ export const getImoveisPublicos = cache(
   },
 );
 
+export const getImoveisDestaquePublicos = cache(
+  async (corretorId: string): Promise<Imovel[]> => {
+    const supabase = await createSiteReadClient();
+
+    const { data: destaques, error: destaquesError } = await supabase
+      .from("imoveis")
+      .select("*, imovel_fotos(*)")
+      .eq("corretor_id", corretorId)
+      .eq("publicado_site", true)
+      .eq("destaque_site", true)
+      .eq("status", "disponivel")
+      .order("atualizado_em", { ascending: false })
+      .limit(50);
+
+    if (!destaquesError && destaques && destaques.length > 0) {
+      return (destaques as ImovelRow[]).map(mapImovelRow);
+    }
+
+    return getImoveisPublicos(corretorId);
+  },
+);
+
 export const getImovelPublico = cache(
   async (corretorId: string, slug: string): Promise<Imovel | null> => {
     const supabase = await createSiteReadClient();

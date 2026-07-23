@@ -34,12 +34,19 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import {
+  aprovarImovel,
   checkImovelDuplicado,
   createImovel,
   enviarImovelParaAprovacao,
   getProximoCodigoPreview,
+  reprovarImovel,
   updateImovel,
+  uploadImovelFotos,
 } from "@/lib/actions/imoveis";
+import {
+  podeAprovarImovel,
+  podeMostrarEnviarAprovacaoNoFormulario,
+} from "@/lib/imoveis/aprovacao";
 import { CARACTERISTICAS_CHECKLIST } from "@/lib/constants/caracteristicas-checklist";
 import {
   COMPLEMENTO_TIPOS,
@@ -48,16 +55,26 @@ import {
   EXIBIR_ENDERECO_OPCOES,
   FINALIDADES_IMOVEL,
   LOCAL_CHAVES_OPCOES,
+  STATUS_IMOVEL_SISTEMA,
   TIPOS_IMOVEL,
   VAGAS_COBERTURA_OPCOES,
   VAGAS_TIPO_OPCOES,
 } from "@/lib/constants/imoveis";
 import { geocodeAddress } from "@/lib/imoveis/geocode";
-import { buildComplementoString, fotosToFotoItems, imovelToFormValues } from "@/lib/imoveis/form";
+import {
+  buildComplementoString,
+  buildImovelFormDefaultValues,
+  fotosToFotoItems,
+  imovelToFormValues,
+  proprietariosFromImovel,
+  resolveStatusEmCadastroId,
+} from "@/lib/imoveis/form";
 import { generateImovelSlug, cn } from "@/lib/utils";
 import {
+  imovelCadastroSchema,
   imovelFormDefaultValues,
-  imovelFormSchema,
+  validateImovelParaAprovacao,
+  type CaptadorFormItem,
   type ImovelFormValues,
 } from "@/lib/validations/imovel";
 import type { Imovel, Perfil, StatusImovel } from "@/types";
@@ -68,7 +85,10 @@ interface ImovelFormProps {
   statusList?: StatusImovel[];
   perfis?: Perfil[];
   perfilAtualId?: string | null;
+  perfil?: Perfil | null;
 }
+
+const SELECT_PLACEHOLDER = "__selecione__";
 
 function FieldError({ message }: { message?: string }) {
   if (!message) {
@@ -79,6 +99,44 @@ function FieldError({ message }: { message?: string }) {
     <p className="text-sm text-destructive" role="alert">
       {message}
     </p>
+  );
+}
+
+function IntegerField({
+  id,
+  value,
+  onChange,
+  onBlur,
+  error,
+  disabled,
+}: {
+  id: string;
+  value: number | null;
+  onChange: (value: number | null) => void;
+  onBlur?: () => void;
+  error?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="space-y-2">
+      <Input
+        id={id}
+        type="number"
+        min={0}
+        step={1}
+        value={value === null || value === undefined ? "" : value}
+        onChange={(event) => {
+          const next = event.target.value;
+          onChange(next === "" ? null : Number(next));
+        }}
+        onBlur={() => {
+          onBlur?.();
+        }}
+        aria-invalid={Boolean(error)}
+        disabled={disabled}
+      />
+      <FieldError message={error} />
+    </div>
   );
 }
 
@@ -109,6 +167,7 @@ export function ImovelForm({
   statusList = [],
   perfis = [],
   perfilAtualId = null,
+  perfil = null,
 }: ImovelFormProps) {
   const router = useRouter();
   const isEdit = mode === "edit" && imovel;
@@ -116,25 +175,43 @@ export function ImovelForm({
   const [fotos, setFotos] = useState<FotoItem[]>(() =>
     isEdit ? fotosToFotoItems(imovel.fotos ?? []) : [],
   );
+  const [avisoDuplicidade, setAvisoDuplicidade] = useState<{
+    imovelId: string;
+    codigo?: string;
+    bairro?: string;
+    titulo?: string;
+  } | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [proximoCodigo, setProximoCodigo] = useState<string | null>(
     isEdit ? (imovel.codigo ?? null) : null,
   );
   const [isPending, startTransition] = useTransition();
 
+  const initialFormValues = useMemo(
+    () =>
+      isEdit && imovel
+        ? imovelToFormValues(imovel)
+        : buildImovelFormDefaultValues(statusList),
+    [isEdit, imovel, statusList],
+  );
+
   const {
     control,
     register,
     handleSubmit,
     setValue,
+    getValues,
+    setError,
+    clearErrors,
     watch,
     formState: { errors },
   } = useForm<ImovelFormValues>({
-    resolver: zodResolver(imovelFormSchema) as Resolver<ImovelFormValues>,
-    defaultValues: isEdit ? imovelToFormValues(imovel) : imovelFormDefaultValues,
+    resolver: zodResolver(imovelCadastroSchema) as Resolver<ImovelFormValues>,
+    defaultValues: initialFormValues,
   });
 
   const finalidade = watch("finalidade");
+  const tipo = watch("tipo");
   const titulo = watch("titulo");
   const cidade = watch("cidade");
   const cep = watch("cep");
@@ -154,8 +231,47 @@ export function ImovelForm({
   const bairro = watch("bairro");
   const estado = watch("estado");
   const localChaves = watch("local_chaves");
-  const clienteId = watch("cliente_id");
+  const proprietarioIds = watch("proprietario_ids");
+  const proprietariosIniciais = useMemo(
+    () => (isEdit && imovel ? proprietariosFromImovel(imovel) : []),
+    [isEdit, imovel],
+  );
+  const captadores = watch("captadores");
+  const publicadoSite = watch("publicado_site");
+  const publicadoPortais = watch("publicado_portais");
+  const destaqueSite = watch("destaque_site");
   const statusImovelId = watch("status_imovel_id");
+
+  const statusLocked =
+    !isEdit || (imovel.status_aprovacao !== "aprovado" && Boolean(imovel.status_aprovacao));
+
+  const selectableStatusList = useMemo(
+    () =>
+      statusList.filter(
+        (status) => !(STATUS_IMOVEL_SISTEMA as readonly string[]).includes(status.nome),
+      ),
+    [statusList],
+  );
+
+  const exigeComplementoTipo = tipo !== "casa" && tipo !== "terreno";
+  const podeEnviarAprovacao = podeMostrarEnviarAprovacaoNoFormulario(
+    isEdit ? imovel : null,
+  );
+  const podeAprovarReprovar =
+    isEdit &&
+    imovel &&
+    podeAprovarImovel(perfil) &&
+    imovel.status_aprovacao === "aguardando_aprovacao";
+  const statusOperacionalLabel = useMemo(() => {
+    const selected = statusList.find((status) => status.id === statusImovelId);
+    if (selected) {
+      return selected.nome;
+    }
+    if (isEdit && imovel?.status_imovel?.nome) {
+      return imovel.status_imovel.nome;
+    }
+    return "Em cadastro";
+  }, [statusList, statusImovelId, isEdit, imovel?.status_imovel?.nome]);
 
   const slugPreview = useMemo(
     () => generateImovelSlug(titulo ?? "", cidade ?? ""),
@@ -163,10 +279,18 @@ export function ImovelForm({
   );
 
   useEffect(() => {
-    if (!isEdit && perfilAtualId && !watch("captador_id")) {
+    if (!isEdit && perfilAtualId && captadores.length === 0) {
+      const initialCaptador: CaptadorFormItem = {
+        id: crypto.randomUUID(),
+        perfil_id: perfilAtualId,
+        nome_externo: null,
+        principal: true,
+        externo: false,
+      };
+      setValue("captadores", [initialCaptador], { shouldValidate: true });
       setValue("captador_id", perfilAtualId);
     }
-  }, [isEdit, perfilAtualId, setValue, watch]);
+  }, [isEdit, perfilAtualId, captadores.length, setValue]);
 
   useEffect(() => {
     if (!isEdit) {
@@ -174,29 +298,227 @@ export function ImovelForm({
     }
   }, [isEdit]);
 
+  useEffect(() => {
+    if (!publicadoSite && destaqueSite) {
+      setValue("destaque_site", false);
+    }
+  }, [publicadoSite, destaqueSite, setValue]);
+
+  function applyValidationErrors(
+    validationErrors: { path: string; message: string }[],
+  ) {
+    clearErrors();
+    for (const item of validationErrors) {
+      if (item.path === "fotos") {
+        continue;
+      }
+      setError(item.path as keyof ImovelFormValues, { message: item.message });
+    }
+  }
+
+  function buildFotoMetadata() {
+    return fotos.map((foto) => ({
+      existingId: foto.existingId,
+      legenda: foto.legenda,
+      ordem: foto.ordem,
+    }));
+  }
+
+  function formatServerActionError(error: unknown, fallback: string): string {
+    if (error instanceof Error) {
+      const message = error.message;
+      if (
+        message.includes("Unexpected end of form") ||
+        message.toLowerCase().includes("body exceeded")
+      ) {
+        return "O envio excedeu o limite de tamanho (muitas fotos de uma vez). Salve o imóvel com menos fotos por vez e tente novamente.";
+      }
+      return message || fallback;
+    }
+    return fallback;
+  }
+
+  async function uploadNewFotos(imovelId: string): Promise<{ error?: string }> {
+    const newFotos = fotos.filter(
+      (foto): foto is FotoItem & { file: File } => Boolean(foto.file),
+    );
+
+    if (newFotos.length === 0) {
+      return {};
+    }
+
+    const BATCH_SIZE = 8;
+
+    for (let offset = 0; offset < newFotos.length; offset += BATCH_SIZE) {
+      const batch = newFotos.slice(offset, offset + BATCH_SIZE);
+      const formData = new FormData();
+      formData.set(
+        "metadata",
+        JSON.stringify(
+          batch.map((foto) => ({
+            tempId: foto.id,
+            legenda: foto.legenda,
+            ordem: foto.ordem,
+          })),
+        ),
+      );
+
+      for (const foto of batch) {
+        formData.append(`file:${foto.id}`, foto.file);
+      }
+
+      const result = await uploadImovelFotos(imovelId, formData);
+      if (result.error) {
+        return { error: result.error };
+      }
+    }
+
+    return {};
+  }
+
+  async function persistImovel(
+    values: ImovelFormValues,
+  ): Promise<{ error?: string; imovelId?: string }> {
+    const fotoMetadata = buildFotoMetadata();
+
+    if (isEdit) {
+      const result = await updateImovel(imovel.id, values, fotoMetadata);
+
+      if (result?.error) {
+        return { error: result.error };
+      }
+
+      const uploadResult = await uploadNewFotos(imovel.id);
+      if (uploadResult.error) {
+        return { error: uploadResult.error };
+      }
+
+      return { imovelId: imovel.id };
+    }
+
+    const result = await createImovel(values);
+
+    if (result?.error || !result.imovelId) {
+      return { error: result?.error ?? "Não foi possível cadastrar o imóvel." };
+    }
+
+    const uploadResult = await uploadNewFotos(result.imovelId);
+    if (uploadResult.error) {
+      return { error: uploadResult.error };
+    }
+
+    return { error: result?.error, imovelId: result.imovelId };
+  }
+
   function handleEnviarAprovacao() {
+    const values = getValues();
+    const validation = validateImovelParaAprovacao(values, { fotosCount: fotos.length });
+
+    if (!validation.success) {
+      applyValidationErrors(validation.errors);
+      setSubmitError(validation.message);
+      toast({
+        variant: "destructive",
+        title: "Não foi possível enviar para aprovação",
+        description: validation.message,
+      });
+      return;
+    }
+
+    setSubmitError(null);
+    clearErrors();
+
+    startTransition(async () => {
+      try {
+        const saveResult = await persistImovel(values);
+        if (saveResult.error) {
+          setSubmitError(saveResult.error);
+          toast({ variant: "destructive", title: "Erro ao salvar", description: saveResult.error });
+          return;
+        }
+
+        const imovelId = saveResult.imovelId;
+        if (!imovelId) {
+          const message = "Não foi possível identificar o imóvel após salvar.";
+          setSubmitError(message);
+          toast({
+            variant: "destructive",
+            title: "Não foi possível enviar para aprovação",
+            description: message,
+          });
+          return;
+        }
+
+        const result = await enviarImovelParaAprovacao(imovelId);
+        if (result.error) {
+          setSubmitError(result.error);
+          toast({
+            variant: "destructive",
+            title: "Não foi possível enviar para aprovação",
+            description: result.error,
+          });
+          return;
+        }
+
+        toast({ title: "Imóvel enviado para aprovação." });
+        router.push(`/dashboard/imoveis/${imovelId}`);
+        router.refresh();
+      } catch (error) {
+        const message = formatServerActionError(
+          error,
+          "Não foi possível enviar o imóvel para aprovação. Tente novamente.",
+        );
+        setSubmitError(message);
+        toast({
+          variant: "destructive",
+          title: "Não foi possível enviar para aprovação",
+          description: message,
+        });
+      }
+    });
+  }
+
+  function handleAprovar() {
     if (!isEdit) {
       return;
     }
 
     startTransition(async () => {
-      const result = await enviarImovelParaAprovacao(imovel.id);
+      const result = await aprovarImovel(imovel.id);
       if (result.error) {
         toast({ variant: "destructive", title: "Erro", description: result.error });
         return;
       }
-      toast({ title: "Imóvel enviado para aprovação." });
+      toast({ title: "Imóvel aprovado." });
+      router.push(`/dashboard/imoveis/${imovel.id}`);
+      router.refresh();
+    });
+  }
+
+  function handleReprovar() {
+    if (!isEdit) {
+      return;
+    }
+
+    startTransition(async () => {
+      const result = await reprovarImovel(imovel.id);
+      if (result.error) {
+        toast({ variant: "destructive", title: "Erro", description: result.error });
+        return;
+      }
+      toast({ title: "Imóvel reprovado. Retornou para cadastro." });
+      router.refresh();
     });
   }
 
   useEffect(() => {
-    if (!isEdit && statusList.length > 0 && !statusImovelId) {
-      const defaultStatus = statusList.find((s) => s.nome === "Disponível") ?? statusList[0];
-      if (defaultStatus) {
-        setValue("status_imovel_id", defaultStatus.id);
+    if (statusLocked && statusList.length > 0 && !statusImovelId) {
+      const emCadastroId = resolveStatusEmCadastroId(statusList);
+      if (emCadastroId) {
+        setValue("status_imovel_id", emCadastroId, { shouldValidate: true });
       }
     }
-  }, [isEdit, statusList, statusImovelId, setValue]);
+  }, [statusLocked, statusList, statusImovelId, setValue]);
 
   useEffect(() => {
     const address = portalDiferente
@@ -248,7 +570,8 @@ export function ImovelForm({
   ]);
 
   useEffect(() => {
-    if (!cep || !numero) {
+    if (!cep || !numero || !logradouro) {
+      setAvisoDuplicidade(null);
       return;
     }
 
@@ -256,6 +579,7 @@ export function ImovelForm({
       ...imovelFormDefaultValues,
       cep,
       numero,
+      logradouro,
       complemento_tipo: complementoTipo,
       complemento_numero: complementoNumero,
       complemento_torre: complementoTorre,
@@ -267,24 +591,27 @@ export function ImovelForm({
         cep,
         numero,
         complemento,
+        logradouro,
         isEdit ? imovel.id : undefined,
       );
 
-      if (result.duplicado) {
-        toast({
-          title: "Possível duplicidade",
-          description: result.titulo
-            ? `Já existe um imóvel neste endereço: "${result.titulo}".`
-            : "Já existe um imóvel com este CEP, número e complemento.",
-          variant: "destructive",
+      if (result.duplicado && result.imovelId) {
+        setAvisoDuplicidade({
+          imovelId: result.imovelId,
+          codigo: result.codigo,
+          bairro: result.bairro,
+          titulo: result.titulo,
         });
+      } else {
+        setAvisoDuplicidade(null);
       }
-    }, 600);
+    }, 800);
 
     return () => clearTimeout(timer);
   }, [
     cep,
     numero,
+    logradouro,
     complementoTipo,
     complementoNumero,
     complementoTorre,
@@ -319,52 +646,33 @@ export function ImovelForm({
 
   function onSubmit(values: ImovelFormValues) {
     setSubmitError(null);
+    clearErrors();
 
     startTransition(async () => {
-      if (isEdit) {
-        const result = await updateImovel(
-          imovel.id,
-          values,
-          fotos.map((foto) => ({
-            existingId: foto.existingId,
-            file: foto.file,
-            legenda: foto.legenda,
-            ordem: foto.ordem,
-          })),
-        );
+      try {
+        const result = await persistImovel(values);
 
-        if (result?.error) {
+        if (result.error) {
           setSubmitError(result.error);
+          toast({ variant: "destructive", title: "Erro ao salvar", description: result.error });
           return;
         }
 
-        toast({ title: "Imóvel atualizado com sucesso." });
-        router.push(`/dashboard/imoveis/${imovel.id}`);
+        toast({
+          title: isEdit ? "Imóvel atualizado com sucesso." : "Imóvel cadastrado com sucesso.",
+        });
+        router.push(
+          result.imovelId ? `/dashboard/imoveis/${result.imovelId}` : "/dashboard/imoveis",
+        );
         router.refresh();
-        return;
+      } catch (error) {
+        const message = formatServerActionError(
+          error,
+          "Não foi possível salvar o imóvel. Tente novamente.",
+        );
+        setSubmitError(message);
+        toast({ variant: "destructive", title: "Erro ao salvar", description: message });
       }
-
-      const newFotos = fotos.filter(
-        (foto): foto is FotoItem & { file: File } => Boolean(foto.file),
-      );
-
-      const result = await createImovel(
-        values,
-        newFotos.map((foto) => ({
-          file: foto.file,
-          legenda: foto.legenda,
-          ordem: foto.ordem,
-        })),
-      );
-
-      if (result?.error) {
-        setSubmitError(result.error);
-        return;
-      }
-
-      toast({ title: "Imóvel cadastrado com sucesso." });
-      router.push(result.imovelId ? `/dashboard/imoveis/${result.imovelId}` : "/dashboard/imoveis");
-      router.refresh();
     });
   }
 
@@ -426,16 +734,24 @@ export function ImovelForm({
 
           <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
             <div className="space-y-2">
-              <Label>Tipo</Label>
+              <Label>Tipo *</Label>
               <Controller
                 control={control}
                 name="tipo"
                 render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
+                  <Select
+                    value={field.value === "" ? SELECT_PLACEHOLDER : field.value}
+                    onValueChange={(value) => {
+                      field.onChange(value === SELECT_PLACEHOLDER ? "" : value);
+                    }}
+                  >
                     <SelectTrigger aria-invalid={Boolean(errors.tipo)}>
-                      <SelectValue placeholder="Selecione o tipo" />
+                      <SelectValue placeholder="Selecione" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value={SELECT_PLACEHOLDER} disabled>
+                        Selecione
+                      </SelectItem>
                       {TIPOS_IMOVEL.map((item) => (
                         <SelectItem key={item.value} value={item.value}>
                           {item.label}
@@ -449,16 +765,24 @@ export function ImovelForm({
             </div>
 
             <div className="space-y-2">
-              <Label>Finalidade</Label>
+              <Label>Finalidade *</Label>
               <Controller
                 control={control}
                 name="finalidade"
                 render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
+                  <Select
+                    value={field.value === "" ? SELECT_PLACEHOLDER : field.value}
+                    onValueChange={(value) => {
+                      field.onChange(value === SELECT_PLACEHOLDER ? "" : value);
+                    }}
+                  >
                     <SelectTrigger aria-invalid={Boolean(errors.finalidade)}>
-                      <SelectValue placeholder="Selecione a finalidade" />
+                      <SelectValue placeholder="Selecione" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value={SELECT_PLACEHOLDER} disabled>
+                        Selecione
+                      </SelectItem>
                       {FINALIDADES_IMOVEL.map((item) => (
                         <SelectItem key={item.value} value={item.value}>
                           {item.label}
@@ -472,16 +796,24 @@ export function ImovelForm({
             </div>
 
             <div className="space-y-2">
-              <Label>Destinação</Label>
+              <Label>Destinação *</Label>
               <Controller
                 control={control}
                 name="destinacao"
                 render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
+                  <Select
+                    value={field.value === "" ? SELECT_PLACEHOLDER : field.value}
+                    onValueChange={(value) => {
+                      field.onChange(value === SELECT_PLACEHOLDER ? "" : value);
+                    }}
+                  >
                     <SelectTrigger aria-invalid={Boolean(errors.destinacao)}>
-                      <SelectValue placeholder="Selecione a destinação" />
+                      <SelectValue placeholder="Selecione" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value={SELECT_PLACEHOLDER} disabled>
+                        Selecione
+                      </SelectItem>
                       {DESTINACOES_IMOVEL.map((item) => (
                         <SelectItem key={item.value} value={item.value}>
                           {item.label}
@@ -495,26 +827,43 @@ export function ImovelForm({
             </div>
 
             <div className="space-y-2">
-              <Label>Status</Label>
-              <Controller
-                control={control}
-                name="status_imovel_id"
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger aria-invalid={Boolean(errors.status_imovel_id)}>
-                      <SelectValue placeholder="Selecione o status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {statusList.map((item) => (
-                        <SelectItem key={item.id} value={item.id}>
-                          {item.nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-              <FieldError message={errors.status_imovel_id?.message} />
+              <Label>Status{statusLocked ? "" : " *"}</Label>
+              {statusLocked ? (
+                <>
+                  <Input
+                    value={statusOperacionalLabel}
+                    readOnly
+                    className="bg-muted"
+                    aria-readonly
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    O status operacional é definido automaticamente pelo fluxo de cadastro e
+                    aprovação.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <Controller
+                    control={control}
+                    name="status_imovel_id"
+                    render={({ field }) => (
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <SelectTrigger aria-invalid={Boolean(errors.status_imovel_id)}>
+                          <SelectValue placeholder="Selecione o status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {selectableStatusList.map((item) => (
+                            <SelectItem key={item.id} value={item.id}>
+                              {item.nome}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                  <FieldError message={errors.status_imovel_id?.message} />
+                </>
+              )}
             </div>
           </div>
         </CardContent>
@@ -550,12 +899,12 @@ export function ImovelForm({
               />
             </div>
             <div className="col-span-12 space-y-2 sm:col-span-7">
-              <Label htmlFor="logradouro">Logradouro</Label>
+              <Label htmlFor="logradouro">Logradouro *</Label>
               <Input id="logradouro" aria-invalid={Boolean(errors.logradouro)} {...register("logradouro")} />
               <FieldError message={errors.logradouro?.message} />
             </div>
             <div className="col-span-6 space-y-2 sm:col-span-3">
-              <Label htmlFor="numero">Número</Label>
+              <Label htmlFor="numero">Número *</Label>
               <Input id="numero" aria-invalid={Boolean(errors.numero)} {...register("numero")} />
               <FieldError message={errors.numero?.message} />
             </div>
@@ -563,13 +912,13 @@ export function ImovelForm({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label>Tipo de complemento</Label>
+              <Label>Tipo de complemento{exigeComplementoTipo ? " *" : ""}</Label>
               <Controller
                 control={control}
                 name="complemento_tipo"
                 render={({ field }) => (
                   <Select value={field.value || undefined} onValueChange={field.onChange}>
-                    <SelectTrigger>
+                    <SelectTrigger aria-invalid={Boolean(errors.complemento_tipo)}>
                       <SelectValue placeholder="Selecione" />
                     </SelectTrigger>
                     <SelectContent>
@@ -582,37 +931,64 @@ export function ImovelForm({
                   </Select>
                 )}
               />
+              <FieldError message={errors.complemento_tipo?.message} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="complemento_numero">Número / Identificação</Label>
-              <Input id="complemento_numero" placeholder="102" {...register("complemento_numero")} />
+              <Label htmlFor="complemento_numero">
+                Complemento/Identificação{exigeComplementoTipo ? " *" : ""}
+              </Label>
+              <Input
+                id="complemento_numero"
+                placeholder="Ex: 102, A, Loja 3"
+                aria-invalid={Boolean(errors.complemento_numero)}
+                {...register("complemento_numero")}
+              />
+              <FieldError message={errors.complemento_numero?.message} />
             </div>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="complemento_torre">Torre / Bloco</Label>
-              <Input id="complemento_torre" placeholder="Torre A" {...register("complemento_torre")} />
+              <Input id="complemento_torre" {...register("complemento_torre")} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="condominio_nome">Nome do condomínio</Label>
-              <Input id="condominio_nome" placeholder="Residencial das Flores" {...register("condominio_nome")} />
+              <Input id="condominio_nome" {...register("condominio_nome")} />
             </div>
           </div>
 
+          {avisoDuplicidade ? (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <p className="font-medium">⚠️ Atenção: Já existe um imóvel cadastrado neste endereço.</p>
+              <p className="mt-1">
+                Imóvel #{avisoDuplicidade.codigo ?? "—"} — {avisoDuplicidade.bairro ?? avisoDuplicidade.titulo ?? "Endereço existente"}
+              </p>
+              <p className="mt-1 text-amber-800">
+                Verifique se não é um cadastro duplicado antes de continuar.
+              </p>
+              <Link
+                href={`/dashboard/imoveis/${avisoDuplicidade.imovelId}`}
+                className="mt-2 inline-block font-medium text-primary underline"
+              >
+                Ver imóvel existente
+              </Link>
+            </div>
+          ) : null}
+
           <div className="grid gap-4 grid-cols-12">
             <div className="col-span-12 space-y-2 sm:col-span-4">
-              <Label htmlFor="bairro">Bairro</Label>
+              <Label htmlFor="bairro">Bairro *</Label>
               <Input id="bairro" aria-invalid={Boolean(errors.bairro)} {...register("bairro")} />
               <FieldError message={errors.bairro?.message} />
             </div>
             <div className="col-span-12 space-y-2 sm:col-span-6">
-              <Label htmlFor="cidade">Cidade</Label>
+              <Label htmlFor="cidade">Cidade *</Label>
               <Input id="cidade" aria-invalid={Boolean(errors.cidade)} {...register("cidade")} />
               <FieldError message={errors.cidade?.message} />
             </div>
             <div className="col-span-12 space-y-2 sm:col-span-2">
-              <Label>Estado (UF)</Label>
+              <Label>Estado (UF) *</Label>
               <Controller
                 control={control}
                 name="estado"
@@ -748,15 +1124,18 @@ export function ImovelForm({
           <ProprietarioSection
             control={control}
             setValue={setValue}
-            clienteId={clienteId}
+            proprietarioIds={proprietarioIds}
+            proprietariosIniciais={proprietariosIniciais}
             disabled={isPending}
             error={errors.cliente_id?.message}
           />
           <CaptadorSection
             control={control}
+            setValue={setValue}
+            captadores={captadores}
             perfis={perfis}
             disabled={isPending}
-            error={errors.captador_id?.message}
+            error={errors.captadores?.message}
           />
         </CardContent>
       </Card>
@@ -768,7 +1147,7 @@ export function ImovelForm({
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label>Local das chaves *</Label>
+              <Label>Local das chaves</Label>
               <Controller
                 control={control}
                 name="local_chaves"
@@ -788,13 +1167,16 @@ export function ImovelForm({
               <FieldError message={errors.local_chaves?.message} />
             </div>
 
-            {localChaves === "imobiliaria" ? (
-              <div className="space-y-2">
-                <Label htmlFor="chaves_codigo">Código / número da chave *</Label>
-                <Input id="chaves_codigo" {...register("chaves_codigo")} />
-                <FieldError message={errors.chaves_codigo?.message} />
-              </div>
-            ) : null}
+            <div className="space-y-2">
+              <Label htmlFor="chaves_codigo">Código/número da chave</Label>
+              <Input
+                id="chaves_codigo"
+                placeholder="Ex.: 102, gaveta 3"
+                disabled={localChaves !== "imobiliaria" || isPending}
+                {...register("chaves_codigo")}
+              />
+              <FieldError message={errors.chaves_codigo?.message} />
+            </div>
 
             {localChaves === "outros" ? (
               <div className="space-y-2 sm:col-span-2">
@@ -836,36 +1218,88 @@ export function ImovelForm({
           <div className="grid gap-4 grid-cols-2 sm:grid-cols-4">
             <div className="space-y-2">
               <Label htmlFor="area_util">Área útil (m²)</Label>
-              <Input id="area_util" type="number" min={0} step="0.01" {...register("area_util")} />
+              <Input
+                id="area_util"
+                type="number"
+                min={0}
+                step="0.01"
+                aria-invalid={Boolean(errors.area_util)}
+                {...register("area_util", {
+                  setValueAs: (value) => (value === "" ? null : Number(value)),
+                })}
+              />
+              <FieldError message={errors.area_util?.message} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="area_total">Área total (m²)</Label>
-              <Input id="area_total" type="number" min={0} step="0.01" {...register("area_total")} />
+              <Label htmlFor="area_total">Área total/Área do terreno (m²)</Label>
+              <Input
+                id="area_total"
+                type="number"
+                min={0}
+                step="0.01"
+                aria-invalid={Boolean(errors.area_total)}
+                {...register("area_total", {
+                  setValueAs: (value) => (value === "" ? null : Number(value)),
+                })}
+              />
+              <FieldError message={errors.area_total?.message} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="ano_construcao">Ano de construção</Label>
-              <Input id="ano_construcao" type="number" min={1800} step={1} {...register("ano_construcao")} />
+              <Input
+                id="ano_construcao"
+                type="number"
+                min={1800}
+                step={1}
+                aria-invalid={Boolean(errors.ano_construcao)}
+                {...register("ano_construcao", {
+                  setValueAs: (value) => (value === "" ? null : Number(value)),
+                })}
+              />
+              <FieldError message={errors.ano_construcao?.message} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="elevadores">Elevadores</Label>
-              <Input id="elevadores" type="number" min={0} step={1} {...register("elevadores")} />
+              <Controller
+                control={control}
+                name="elevadores"
+                render={({ field }) => (
+                  <IntegerField
+                    id="elevadores"
+                    value={field.value}
+                    onChange={field.onChange}
+                    disabled={isPending}
+                  />
+                )}
+              />
             </div>
           </div>
 
           <div className="grid gap-4 grid-cols-2 sm:grid-cols-5">
             {(
               [
-                ["quartos", "Quartos"],
+                ["quartos", "Quartos *"],
                 ["suites", "Suítes"],
                 ["banheiros", "Banheiros"],
                 ["salas", "Salas"],
-                ["vagas", "Vagas"],
+                ["vagas", "Vagas *"],
               ] as const
             ).map(([name, label]) => (
               <div key={name} className="space-y-2">
                 <Label htmlFor={name}>{label}</Label>
-                <Input id={name} type="number" min={0} step={1} {...register(name)} />
-                <FieldError message={errors[name]?.message} />
+                <Controller
+                  control={control}
+                  name={name}
+                  render={({ field }) => (
+                    <IntegerField
+                      id={name}
+                      value={field.value}
+                      onChange={field.onChange}
+                      error={errors[name]?.message}
+                      disabled={isPending}
+                    />
+                  )}
+                />
               </div>
             ))}
           </div>
@@ -878,7 +1312,9 @@ export function ImovelForm({
                 name="vagas_tipo"
                 render={({ field }) => (
                   <Select value={field.value || undefined} onValueChange={field.onChange}>
-                    <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                    <SelectTrigger aria-invalid={Boolean(errors.vagas_tipo)}>
+                      <SelectValue placeholder="Selecione" />
+                    </SelectTrigger>
                     <SelectContent>
                       {VAGAS_TIPO_OPCOES.map((item) => (
                         <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
@@ -887,6 +1323,7 @@ export function ImovelForm({
                   </Select>
                 )}
               />
+              <FieldError message={errors.vagas_tipo?.message} />
             </div>
             <div className="space-y-2">
               <Label>Cobertura da vaga</Label>
@@ -895,7 +1332,9 @@ export function ImovelForm({
                 name="vagas_cobertura"
                 render={({ field }) => (
                   <Select value={field.value || undefined} onValueChange={field.onChange}>
-                    <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                    <SelectTrigger aria-invalid={Boolean(errors.vagas_cobertura)}>
+                      <SelectValue placeholder="Selecione" />
+                    </SelectTrigger>
                     <SelectContent>
                       {VAGAS_COBERTURA_OPCOES.map((item) => (
                         <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
@@ -904,6 +1343,7 @@ export function ImovelForm({
                   </Select>
                 )}
               />
+              <FieldError message={errors.vagas_cobertura?.message} />
             </div>
           </div>
 
@@ -951,7 +1391,7 @@ export function ImovelForm({
           {finalidade === "venda" ? (
             <div className="grid gap-4 grid-cols-12">
               <div className="col-span-12 space-y-2 sm:col-span-5">
-                <Label htmlFor="valor_venda">Valor de venda (R$)</Label>
+                <Label htmlFor="valor_venda">Valor de venda/locação (R$) *</Label>
                 <Controller
                   control={control}
                   name="valor_venda"
@@ -973,9 +1413,16 @@ export function ImovelForm({
                   control={control}
                   name="valor_condominio"
                   render={({ field }) => (
-                    <CurrencyInput id="valor_condominio" value={field.value} onChange={field.onChange} disabled={isPending} />
+                    <CurrencyInput
+                      id="valor_condominio"
+                      value={field.value}
+                      onChange={field.onChange}
+                      aria-invalid={Boolean(errors.valor_condominio)}
+                      disabled={isPending}
+                    />
                   )}
                 />
+                <FieldError message={errors.valor_condominio?.message} />
               </div>
               <div className="col-span-6 space-y-2 sm:col-span-3">
                 <Label htmlFor="valor_iptu">IPTU (R$)</Label>
@@ -983,15 +1430,22 @@ export function ImovelForm({
                   control={control}
                   name="valor_iptu"
                   render={({ field }) => (
-                    <CurrencyInput id="valor_iptu" value={field.value} onChange={field.onChange} disabled={isPending} />
+                    <CurrencyInput
+                      id="valor_iptu"
+                      value={field.value}
+                      onChange={field.onChange}
+                      aria-invalid={Boolean(errors.valor_iptu)}
+                      disabled={isPending}
+                    />
                   )}
                 />
+                <FieldError message={errors.valor_iptu?.message} />
               </div>
             </div>
           ) : (
             <div className="grid gap-4 grid-cols-12">
               <div className="col-span-12 space-y-2 sm:col-span-5">
-                <Label htmlFor="valor_locacao">Valor de locação (R$)</Label>
+                <Label htmlFor="valor_locacao">Valor de venda/locação (R$) *</Label>
                 <Controller
                   control={control}
                   name="valor_locacao"
@@ -1013,9 +1467,16 @@ export function ImovelForm({
                   control={control}
                   name="valor_condominio"
                   render={({ field }) => (
-                    <CurrencyInput id="valor_condominio" value={field.value} onChange={field.onChange} disabled={isPending} />
+                    <CurrencyInput
+                      id="valor_condominio"
+                      value={field.value}
+                      onChange={field.onChange}
+                      aria-invalid={Boolean(errors.valor_condominio)}
+                      disabled={isPending}
+                    />
                   )}
                 />
+                <FieldError message={errors.valor_condominio?.message} />
               </div>
               <div className="col-span-6 space-y-2 sm:col-span-3">
                 <Label htmlFor="valor_iptu">IPTU (R$)</Label>
@@ -1023,9 +1484,16 @@ export function ImovelForm({
                   control={control}
                   name="valor_iptu"
                   render={({ field }) => (
-                    <CurrencyInput id="valor_iptu" value={field.value} onChange={field.onChange} disabled={isPending} />
+                    <CurrencyInput
+                      id="valor_iptu"
+                      value={field.value}
+                      onChange={field.onChange}
+                      aria-invalid={Boolean(errors.valor_iptu)}
+                      disabled={isPending}
+                    />
                   )}
                 />
+                <FieldError message={errors.valor_iptu?.message} />
               </div>
             </div>
           )}
@@ -1038,7 +1506,10 @@ export function ImovelForm({
                 min={0}
                 max={100}
                 step="0.01"
-                {...register("comissao_percent")}
+                aria-invalid={Boolean(errors.comissao_percent)}
+                {...register("comissao_percent", {
+                  setValueAs: (value) => (value === "" ? null : Number(value)),
+                })}
               />
               <FieldError message={errors.comissao_percent?.message} />
             </div>
@@ -1063,7 +1534,8 @@ export function ImovelForm({
           </div>
           <div className="space-y-2">
             <Label htmlFor="descricao">Descrição</Label>
-            <Textarea id="descricao" rows={5} {...register("descricao")} />
+            <Textarea id="descricao" rows={5} aria-invalid={Boolean(errors.descricao)} {...register("descricao")} />
+            <FieldError message={errors.descricao?.message} />
           </div>
         </CardContent>
       </Card>
@@ -1076,50 +1548,57 @@ export function ImovelForm({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Controller
-            control={control}
-            name="publicado_site"
-            render={({ field }) => (
-              <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-4 py-3">
-                <Label htmlFor="publicado_site" className="cursor-pointer">
-                  Publicar no site
-                </Label>
-                <Switch
-                  id="publicado_site"
-                  checked={field.value}
-                  onCheckedChange={field.onChange}
-                  disabled={isPending}
-                />
-              </div>
-            )}
-          />
-          <Controller
-            control={control}
-            name="publicado_portais"
-            render={({ field }) => (
-              <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-4 py-3">
-                <Label htmlFor="publicado_portais" className="cursor-pointer">
-                  Publicar nos portais
-                </Label>
-                <Switch
-                  id="publicado_portais"
-                  checked={field.value}
-                  onCheckedChange={field.onChange}
-                  disabled={isPending}
-                />
-              </div>
-            )}
-          />
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Exibir endereço no site</Label>
+          <div className="flex flex-col gap-4 rounded-lg border border-border bg-muted/30 p-4 lg:flex-row lg:items-end lg:gap-6">
+            <div className="flex flex-1 items-center justify-between gap-3 lg:justify-start">
+              <Controller
+                control={control}
+                name="publicado_site"
+                render={({ field }) => (
+                  <>
+                    <Label htmlFor="publicado_site" className="cursor-pointer">
+                      Publicar no site
+                    </Label>
+                    <Switch
+                      id="publicado_site"
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      disabled={isPending}
+                    />
+                  </>
+                )}
+              />
+            </div>
+            <div className="flex flex-1 items-center justify-between gap-3 lg:justify-start">
+              <Controller
+                control={control}
+                name="destaque_site"
+                render={({ field }) => (
+                  <>
+                    <Label
+                      htmlFor="destaque_site"
+                      className={publicadoSite ? "cursor-pointer" : "text-muted-foreground"}
+                    >
+                      Destaque
+                    </Label>
+                    <Switch
+                      id="destaque_site"
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      disabled={!publicadoSite || isPending}
+                    />
+                  </>
+                )}
+              />
+            </div>
+            <div className="min-w-0 flex-1 space-y-2">
+              <Label>Exibir endereço{publicadoSite ? " *" : ""}</Label>
               <Controller
                 control={control}
                 name="exibir_endereco_site"
                 render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
+                  <Select value={field.value} onValueChange={field.onChange} disabled={!publicadoSite || isPending}>
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue placeholder="Selecione" />
                     </SelectTrigger>
                     <SelectContent>
                       {EXIBIR_ENDERECO_OPCOES.map((item) => (
@@ -1132,13 +1611,37 @@ export function ImovelForm({
                 )}
               />
             </div>
-            <div className="space-y-2">
-              <Label>Exibir endereço nos portais</Label>
+          </div>
+
+          <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between lg:max-w-xl">
+            <Controller
+              control={control}
+              name="publicado_portais"
+              render={({ field }) => (
+                <>
+                  <Label htmlFor="publicado_portais" className="cursor-pointer">
+                    Publicar nos portais
+                  </Label>
+                  <Switch
+                    id="publicado_portais"
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    disabled={isPending}
+                  />
+                </>
+              )}
+            />
+            <div className="min-w-0 flex-1 space-y-2 sm:max-w-xs">
+              <Label>Exibir endereço{publicadoPortais ? " *" : ""}</Label>
               <Controller
                 control={control}
                 name="exibir_endereco_portais"
                 render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
+                  <Select
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    disabled={!publicadoPortais || isPending}
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -1185,8 +1688,37 @@ export function ImovelForm({
         </p>
       ) : null}
 
-      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-        {isEdit && imovel.status_aprovacao === "em_cadastro" ? (
+      {podeEnviarAprovacao ? (
+        <p className="text-sm text-muted-foreground">
+          {podeAprovarImovel(perfil)
+            ? "Como gestor, você pode enviar para aprovação ou aprovar diretamente após o envio."
+            : "Envie para aprovação quando todos os campos obrigatórios estiverem preenchidos."}
+        </p>
+      ) : null}
+
+      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:flex-wrap sm:justify-end">
+        {podeAprovarReprovar ? (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isPending}
+              onClick={handleReprovar}
+              className="min-w-36"
+            >
+              Reprovar
+            </Button>
+            <Button
+              type="button"
+              disabled={isPending}
+              onClick={handleAprovar}
+              className="min-w-36"
+            >
+              Aprovar
+            </Button>
+          </>
+        ) : null}
+        {podeEnviarAprovacao ? (
           <Button
             type="button"
             variant="secondary"
@@ -1194,7 +1726,14 @@ export function ImovelForm({
             onClick={handleEnviarAprovacao}
             className="min-w-36"
           >
-            Enviar para aprovação
+            {isPending ? (
+              <>
+                <Loader2 className="animate-spin" data-icon="inline-start" />
+                Enviando...
+              </>
+            ) : (
+              "Enviar para aprovação"
+            )}
           </Button>
         ) : null}
         <Button type="button" variant="outline" asChild disabled={isPending}>
@@ -1209,7 +1748,7 @@ export function ImovelForm({
               Salvando...
             </>
           ) : isEdit ? (
-            "Salvar alterações"
+            "Salvar"
           ) : (
             "Cadastrar imóvel"
           )}

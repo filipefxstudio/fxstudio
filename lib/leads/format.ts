@@ -1,5 +1,7 @@
 import type { Lead } from "@/types";
 
+import { parseLeadObservacoes } from "@/lib/leads/observacoes";
+
 export function formatTelefoneLead(telefone: string | null | undefined): string {
   if (!telefone) {
     return "Sem telefone";
@@ -72,7 +74,16 @@ export function isLeadAtivo(lead: Lead): boolean {
   if (lead.situacao === "descartado" || lead.situacao === "negocio_fechado") {
     return false;
   }
-  return lead.etapa !== "fechado" && lead.etapa !== "perdido";
+  return (
+    lead.etapa !== "venda" &&
+    lead.etapa !== "fechado" &&
+    lead.etapa !== "perdido"
+  );
+}
+
+/** Visível no funil/kanban (inclui vendas fechadas e perdidos; exclui descartados). */
+export function isLeadVisivelFunil(lead: Lead): boolean {
+  return lead.situacao !== "descartado";
 }
 
 export function getLeadResponsavelId(lead: Lead): string | null {
@@ -109,4 +120,17 @@ export function formatOrigemDisplay(origem: string): string {
   };
 
   return map[origem] ?? origem;
+}
+
+export function isLeadQualificado(lead: Lead): boolean {
+  if (lead.etapa === "qualificado") {
+    return true;
+  }
+
+  return parseLeadObservacoes(lead.observacoes).meta.qualificado === true;
+}
+
+/** Mapeia etapa legada "qualificado" para exibição no seletor de etapas. */
+export function etapaParaSelectAtendimento(etapa: Lead["etapa"]): Lead["etapa"] {
+  return etapa === "qualificado" ? "contato_feito" : etapa;
 }
